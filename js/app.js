@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'shein_pos_lite_v9';
+const STORAGE_KEY = 'shein_pos_lite_v10';
 const LEGACY_KEYS = ['shein_pos_lite_v8','shein_pos_lite_v7','shein_pos_lite_v6','shein_pos_lite_v5','shein_pos_lite_v4','shein_pos_lite_v3','shein_pos_lite_v2','shein_pos_lite_v1'];
 const STATUS_OPTIONS = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
@@ -39,6 +39,7 @@ const els = {
 };
 
 migrateLegacyData();
+normalizeStateData();
 bindEvents();
 syncCheckoutGroups();
 render();
@@ -587,6 +588,61 @@ function slugify(value) { return String(value || '').normalize('NFD').replace(/[
 function clampNumber(value, min, fallback) { const n = Number(value); return Number.isFinite(n) && n >= min ? n : fallback; }
 function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
 function escapeAttr(value) { return escapeHtml(value); }
+
+
+function normalizeStateData() {
+  state.accounts = (state.accounts || []).map((account, index) => ({
+    id: account.id || uid('acct'),
+    email: String(account.email || '').trim(),
+    password: String(account.password || '').trim(),
+    cost: clampNumber(account.cost, 0, 190),
+    expiryHours: clampNumber(account.expiryHours, 1, 20),
+    purchasedAt: account.purchasedAt || new Date().toISOString(),
+    availableVouchers: normalizeAccountVouchers(account)
+  })).filter(account => account.email);
+
+  state.orders = (state.orders || []).map((order, index) => ({
+    id: order.id || uid('ord'),
+    batchId: String(order.batchId || generateMissingBatchId(order, index)),
+    checkoutId: String(order.checkoutId || ''),
+    customerName: String(order.customerName || 'Customer').trim(),
+    customerTag: String(order.customerTag || '').trim(),
+    createdAt: order.createdAt || new Date().toISOString(),
+    itemCount: clampNumber(order.itemCount, 1, 1),
+    accountId: String(order.accountId || ''),
+    voucherUsed: String(order.voucherUsed || '').trim(),
+    tracking: String(order.tracking || '').trim(),
+    totalPrice: clampNumber(order.totalPrice, 0, 0),
+    discountedPrice: clampNumber(order.discountedPrice, 0, 0),
+    refund: clampNumber(order.refund, 0, 0),
+    deliveryStatus: normalizeStatus(order.deliveryStatus)
+  })).filter(order => order.customerName);
+
+  const batches = new Map();
+  state.orders.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+  state.orders.forEach(order => {
+    if (!batches.has(order.batchId)) batches.set(order.batchId, []);
+    batches.get(order.batchId).push(order);
+  });
+  batches.forEach((orders, batchId) => {
+    orders.forEach((order, idx) => {
+      order.checkoutId = `${batchId}-${String(idx + 1).padStart(2, '0')}`;
+    });
+  });
+  saveState();
+}
+
+function normalizeAccountVouchers(account) {
+  if (Array.isArray(account.availableVouchers)) return uniqueByVoucherKey(account.availableVouchers.map(v => String(v || '').trim()).filter(Boolean));
+  if (typeof account.availableVouchers === 'string') return splitVouchers(account.availableVouchers);
+  if (typeof account.vouchers === 'string') return splitVouchers(account.vouchers);
+  return [];
+}
+
+function generateMissingBatchId(order, index) {
+  const base = slugify(`${order.customerName || 'CUSTOMER'} ${order.customerTag || ''}`).slice(0,18) || 'CUSTOMER';
+  return `${base}-${String(index + 1).padStart(3, '0')}`;
+}
 
 function loadState() {
   try {
