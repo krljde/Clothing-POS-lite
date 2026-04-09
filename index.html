@@ -7,52 +7,135 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <div class="wrap">
-    <header class="hero">
-      <span class="eyebrow">Boutique POS</span>
-      <h1>SHEIN POS Lite</h1>
-      <p>Track accounts, vouchers, split checkouts, tracking numbers, and profit. Works on GitHub Pages with local backup.</p>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Boutique POS</span>
+        <h1>SHEIN POS Lite</h1>
+      </div>
+      <nav class="topnav" aria-label="Primary">
+        <button class="nav-btn active" data-view-target="home-view" type="button">Home</button>
+        <button class="nav-btn" data-view-target="accounts-view" type="button">Accounts</button>
+        <button class="nav-btn" data-view-target="orders-view" type="button">Orders</button>
+      </nav>
     </header>
 
-    <section class="summary-grid" id="summary-grid">
-      <div class="card stat"><div class="label">Total Checkouts</div><div class="value" id="stat-orders">0</div></div>
-      <div class="card stat"><div class="label">Total Profit</div><div class="value" id="stat-profit">₱0</div></div>
-      <div class="card stat"><div class="label">Available Accounts</div><div class="value" id="stat-active">0</div></div>
-      <div class="card stat"><div class="label">Expired Accounts</div><div class="value" id="stat-expired">0</div></div>
-    </section>
-
-    <section class="card section-card">
-      <div class="section-heading">
-        <div>
-          <span class="section-kicker">Accounts</span>
-          <h2>Add Account</h2>
+    <main class="content">
+      <section class="view active" id="home-view">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Overview</span>
+            <h2>Dashboard</h2>
+          </div>
         </div>
+
+        <section class="summary-grid">
+          <article class="card stat-card">
+            <span class="label">Total Checkouts</span>
+            <strong class="value" id="stat-checkouts">0</strong>
+          </article>
+          <article class="card stat-card">
+            <span class="label">Total Profit</span>
+            <strong class="value" id="stat-profit">₱0</strong>
+          </article>
+          <article class="card stat-card">
+            <span class="label">Available Accounts</span>
+            <strong class="value" id="stat-available">0</strong>
+          </article>
+          <article class="card stat-card">
+            <span class="label">Expired Accounts</span>
+            <strong class="value" id="stat-expired">0</strong>
+          </article>
+          <article class="card stat-card wide">
+            <span class="label">Total Items Sold</span>
+            <strong class="value" id="stat-items">0</strong>
+          </article>
+        </section>
+
+        <section class="card home-list">
+          <div class="section-head compact">
+            <div>
+              <span class="section-kicker">Recent</span>
+              <h3>Latest Orders</h3>
+            </div>
+          </div>
+          <div id="recent-orders"></div>
+        </section>
+      </section>
+
+      <section class="view" id="accounts-view">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Accounts</span>
+            <h2>Manage Accounts</h2>
+          </div>
+          <div class="toolbar">
+            <select id="account-sort">
+              <option value="available">Available first</option>
+              <option value="expired">Expired first</option>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+            <button type="button" id="open-account-modal">Add Account</button>
+          </div>
+        </div>
+
+        <div class="list-stack" id="accounts-list"></div>
+      </section>
+
+      <section class="view" id="orders-view">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Orders</span>
+            <h2>Customer Orders</h2>
+          </div>
+        </div>
+        <div class="list-stack" id="orders-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <button class="fab" id="open-checkout-modal" type="button" aria-label="Add new checkout">+</button>
+
+  <div class="modal" id="account-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="account-modal"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">Account</span>
+          <h2 id="account-modal-title">Add Account</h2>
+        </div>
+        <button type="button" class="ghost-btn" data-close-modal="account-modal">Close</button>
       </div>
-      <form id="account-form" class="grid-4">
+      <form id="account-form" class="form-grid">
+        <input type="hidden" name="accountId" />
         <input name="email" placeholder="Email" required />
         <input name="password" placeholder="Password" />
         <input name="cost" type="number" step="0.01" min="0" value="190" placeholder="Account cost" required />
         <input name="expiryHours" type="number" step="1" min="1" max="24" value="20" placeholder="Expiry hours" required />
-        <input name="vouchers" class="span-3" placeholder="Available vouchers (ex. 83%, 79%, FS)" required />
-        <button type="submit">Save account</button>
+        <input name="vouchers" class="span-2" placeholder="Available vouchers (83%, 79%, FS)" required />
+        <div class="modal-actions span-2">
+          <button type="submit">Save Account</button>
+        </div>
       </form>
-      <p class="hint">Status is automatic: <strong>Available</strong> if vouchers are left, <strong>Used</strong> when all are consumed, and <strong>Expired</strong> when the account time is over.</p>
-    </section>
+    </div>
+  </div>
 
-    <section class="card section-card">
-      <div class="section-heading">
+  <div class="modal" id="checkout-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="checkout-modal"></div>
+    <div class="modal-panel large">
+      <div class="modal-head">
         <div>
-          <span class="section-kicker">Checkouts</span>
+          <span class="section-kicker">Checkout</span>
           <h2>Add Checkout Batch</h2>
         </div>
+        <button type="button" class="ghost-btn" data-close-modal="checkout-modal">Close</button>
       </div>
       <form id="order-form">
-        <div class="grid-4">
-          <input name="customerName" id="customer-name" list="customer-list" placeholder="Customer name" required />
+        <div class="form-grid">
+          <input name="customerName" list="customer-list" placeholder="Customer name" required />
           <datalist id="customer-list"></datalist>
-
           <input name="customerTag" placeholder="Optional note / identifier" />
-
           <select name="checkoutCount" id="checkout-count">
             <option value="1">1 checkout</option>
             <option value="2">2 checkouts</option>
@@ -61,123 +144,59 @@
             <option value="5">5 checkouts</option>
             <option value="6">6 checkouts</option>
           </select>
-
-          <button type="submit">Save checkout batch</button>
         </div>
-
-        <div id="checkout-groups"></div>
+        <div id="checkout-groups" class="checkout-groups"></div>
+        <div class="modal-actions">
+          <button type="submit">Save Checkout Batch</button>
+        </div>
       </form>
-      <p class="hint">Batch ID and checkout IDs are generated automatically in the background. New checkouts always start as <strong>Processing</strong>.</p>
-    </section>
-
-    <section class="card actions section-card">
-      <div class="section-heading">
-        <div>
-          <span class="section-kicker">Backup</span>
-          <h2>Export / Import</h2>
-        </div>
-      </div>
-      <div class="button-row">
-        <button id="export-btn" type="button">Export JSON Backup</button>
-        <label class="file-label">Import JSON Backup<input type="file" id="import-file" accept="application/json" hidden /></label>
-        <button id="reset-btn" type="button" class="danger">Reset all data</button>
-      </div>
-    </section>
-
-    <section class="card section-card">
-      <div class="section-heading">
-        <div>
-          <span class="section-kicker">Accounts</span>
-          <h2>Saved Accounts</h2>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table class="responsive-table accounts-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Password</th>
-              <th>Cost</th>
-              <th>Purchased</th>
-              <th>Expiry</th>
-              <th>Hours Left</th>
-              <th>Used / Total</th>
-              <th>Available Vouchers</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="accounts-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="card section-card">
-      <div class="section-heading">
-        <div>
-          <span class="section-kicker">Orders</span>
-          <h2>Checkouts</h2>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table class="responsive-table orders-table">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Items</th>
-              <th>Account</th>
-              <th>Voucher</th>
-              <th>Tracking</th>
-              <th>Total</th>
-              <th>Discounted</th>
-              <th>Refund</th>
-              <th>Profit</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="orders-tbody"></tbody>
-        </table>
-      </div>
-    </section>
+    </div>
   </div>
 
-  <div class="modal" id="edit-modal" hidden>
-    <div class="modal-backdrop" data-close-modal></div>
-    <div class="modal-panel">
-      <div class="modal-header">
+  <div class="modal" id="batch-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="batch-modal"></div>
+    <div class="modal-panel large">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">Order</span>
+          <h2 id="batch-modal-title">Order Details</h2>
+        </div>
+        <button type="button" class="ghost-btn" data-close-modal="batch-modal">Close</button>
+      </div>
+      <div id="batch-summary" class="batch-summary"></div>
+      <div id="batch-checkouts" class="list-stack"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="edit-checkout-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="edit-checkout-modal"></div>
+    <div class="modal-panel large">
+      <div class="modal-head">
         <div>
           <span class="section-kicker">Edit</span>
           <h2>Edit Checkout</h2>
         </div>
-        <button type="button" class="small-btn modal-close" id="close-modal-btn">Close</button>
+        <button type="button" class="ghost-btn" data-close-modal="edit-checkout-modal">Close</button>
       </div>
-
-      <form id="edit-order-form">
-        <div class="grid-4">
-          <input name="customerName" id="edit-customer-name" placeholder="Customer name" required />
-          <input name="customerTag" id="edit-customer-tag" placeholder="Optional note / identifier" />
-          <input name="itemCount" id="edit-item-count" type="number" min="1" step="1" placeholder="Item count" required />
-          <select name="accountId" id="edit-account-id" required></select>
-
-          <select name="voucherUsed" id="edit-voucher-used" required></select>
-          <input name="tracking" id="edit-tracking" placeholder="Tracking number" />
-          <input name="totalPrice" id="edit-total-price" type="number" step="0.01" min="0" placeholder="Total price" required />
-          <input name="discountedPrice" id="edit-discounted-price" type="number" step="0.01" min="0" placeholder="Discounted price" required />
-
-          <input name="refund" id="edit-refund" type="number" step="0.01" min="0" placeholder="Refund" />
-          <select name="deliveryStatus" id="edit-delivery-status" required>
-            <option>Processing</option>
-            <option>Shipped</option>
-            <option>Delivered</option>
-            <option>Cancelled</option>
-          </select>
-        </div>
-
-        <p class="hint">If you rename the customer or note here, the hidden batch ID for that purchase batch updates automatically too.</p>
-
-        <div class="button-row" style="margin-top: 14px;">
-          <button type="submit">Save changes</button>
+      <form id="edit-order-form" class="form-grid">
+        <input name="orderId" type="hidden" />
+        <input name="customerName" placeholder="Customer name" required />
+        <input name="customerTag" placeholder="Optional note / identifier" />
+        <input name="itemCount" type="number" min="1" step="1" placeholder="Item count" required />
+        <select name="accountId" id="edit-account-id" required></select>
+        <select name="voucherUsed" id="edit-voucher-used" required></select>
+        <input name="tracking" placeholder="Tracking number" />
+        <input name="totalPrice" type="number" step="0.01" min="0" placeholder="Total price" required />
+        <input name="discountedPrice" type="number" step="0.01" min="0" placeholder="Discounted price" required />
+        <input name="refund" type="number" step="0.01" min="0" placeholder="Refund" />
+        <select name="deliveryStatus" required>
+          <option>Processing</option>
+          <option>Shipped</option>
+          <option>Delivered</option>
+          <option>Cancelled</option>
+        </select>
+        <div class="modal-actions span-2">
+          <button type="submit">Save Changes</button>
         </div>
       </form>
     </div>
