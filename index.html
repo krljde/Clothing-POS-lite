@@ -36,9 +36,10 @@
         <input name="password" placeholder="Password" />
         <input name="cost" type="number" step="0.01" min="0" value="190" placeholder="Account cost" required />
         <input name="expiryHours" type="number" step="1" min="1" max="24" value="20" placeholder="Expiry hours" required />
+        <input name="availableVouchers" placeholder="Available vouchers (ex. 83%, 79%, FS)" />
         <button type="submit">Save account</button>
       </form>
-      <p class="hint">Expiry starts from the time the account is added. Default is 20 hours, max is 24.</p>
+      <p class="hint">Expiry starts from the time the account is added. Default is 20 hours, max is 24. Add the vouchers available on that account, separated by commas.</p>
     </section>
 
     <section class="card section-card">
@@ -105,6 +106,7 @@
               <th>Hours Left</th>
               <th>Usage</th>
               <th>Status</th>
+              <th>Available Vouchers</th>
               <th></th>
             </tr>
           </thead>
