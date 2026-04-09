@@ -10,11 +10,11 @@
   <div class="wrap">
     <header>
       <h1>SHEIN POS Lite</h1>
-      <p>Accounts, vouchers, orders, and profit tracking — local only for now.</p>
+      <p>Accounts, split checkouts, vouchers, tracking numbers, and profit tracking — local only for now.</p>
     </header>
 
     <section class="summary-grid" id="summary-grid">
-      <div class="card stat"><div class="label">Total Orders</div><div class="value" id="stat-orders">0</div></div>
+      <div class="card stat"><div class="label">Total Checkouts</div><div class="value" id="stat-orders">0</div></div>
       <div class="card stat"><div class="label">Total Profit</div><div class="value" id="stat-profit">₱0</div></div>
       <div class="card stat"><div class="label">Active Accounts</div><div class="value" id="stat-active">0</div></div>
       <div class="card stat"><div class="label">Expired Accounts</div><div class="value" id="stat-expired">0</div></div>
@@ -33,16 +33,19 @@
     </section>
 
     <section class="card">
-      <h2>Add Order</h2>
+      <h2>Add Checkout</h2>
       <form id="order-form" class="grid-4">
         <input name="customerName" placeholder="Customer name" required />
+        <input name="batchId" placeholder="Batch ID (optional, ex. VINCENT-001)" />
+        <input name="checkoutId" placeholder="Checkout ID (optional, ex. VINCENT-001-A)" />
+        <input name="itemCount" type="number" step="1" min="1" value="1" placeholder="Item count" />
         <select name="accountId" id="order-account" required>
           <option value="">Select account</option>
         </select>
-        <input name="voucherUsed" placeholder="Voucher used (ex. 70%, 79% + 70%)" />
+        <input name="voucherUsed" placeholder="Voucher used (ex. 83%, 79% + 70%)" />
         <input name="tracking" placeholder="Tracking / J&T" />
-        <input name="totalPrice" type="number" step="0.01" min="0" placeholder="Total price" required />
-        <input name="discountedPrice" type="number" step="0.01" min="0" placeholder="Discounted price" required />
+        <input name="totalPrice" type="number" step="0.01" min="0" placeholder="Total price paid by customer" required />
+        <input name="discountedPrice" type="number" step="0.01" min="0" placeholder="Discounted checkout price" required />
         <input name="refund" type="number" step="0.01" min="0" value="0" placeholder="Refund" />
         <select name="deliveryStatus">
           <option>Processing</option>
@@ -51,9 +54,9 @@
           <option>Cancelled</option>
         </select>
         <label class="checkbox-inline"><input type="checkbox" name="delivered" /> Delivered</label>
-        <button type="submit">Save order</button>
+        <button type="submit">Save checkout</button>
       </form>
-      <p class="hint">Profit formula used: refund + total price - discounted price - account cost share.</p>
+      <p class="hint">Profit formula used: total price - discounted price + refund.</p>
     </section>
 
     <section class="card actions">
@@ -88,19 +91,21 @@
     </section>
 
     <section class="card">
-      <h2>Orders</h2>
+      <h2>Checkouts</h2>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Customer</th>
+              <th>Batch ID</th>
+              <th>Checkout ID</th>
+              <th>Items</th>
               <th>Account</th>
               <th>Voucher</th>
               <th>Tracking</th>
               <th>Total</th>
               <th>Discounted</th>
               <th>Refund</th>
-              <th>Cost Share</th>
               <th>Profit</th>
               <th>Status</th>
               <th>Delivered</th>
