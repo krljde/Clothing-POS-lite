@@ -47,7 +47,7 @@ render();
 function bindEvents() {
   els.navBtns.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.viewTarget)));
   els.openAccountBtn.addEventListener('click', () => openAccountModal());
-  els.openCheckoutBtn.addEventListener('click', () => openModal(els.checkoutModal));
+  els.openCheckoutBtn.addEventListener('click', () => { syncCheckoutGroups(); openModal(els.checkoutModal); });
   els.accountSort.addEventListener('change', renderAccounts);
   els.accountForm.addEventListener('submit', onSaveAccount);
   els.orderForm.addEventListener('submit', onAddOrderBatch);
