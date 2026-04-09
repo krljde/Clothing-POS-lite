@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'shein_pos_lite_v10';
+const STORAGE_KEY = 'shein_pos_lite_v9';
 const LEGACY_KEYS = ['shein_pos_lite_v8','shein_pos_lite_v7','shein_pos_lite_v6','shein_pos_lite_v5','shein_pos_lite_v4','shein_pos_lite_v3','shein_pos_lite_v2','shein_pos_lite_v1'];
 const STATUS_OPTIONS = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
@@ -11,6 +11,7 @@ const els = {
   navBtns: [...document.querySelectorAll('.nav-btn')],
   statCheckouts: document.getElementById('stat-checkouts'),
   statProfit: document.getElementById('stat-profit'),
+  statRevenue: document.getElementById('stat-revenue'),
   statAvailable: document.getElementById('stat-available'),
   statExpired: document.getElementById('stat-expired'),
   statItems: document.getElementById('stat-items'),
@@ -39,7 +40,6 @@ const els = {
 };
 
 migrateLegacyData();
-normalizeStateData();
 bindEvents();
 syncCheckoutGroups();
 render();
@@ -103,9 +103,11 @@ function render() {
 
 function renderStats() {
   const profit = state.orders.reduce((sum, order) => sum + getOrderProfit(order), 0);
+  const revenue = state.orders.reduce((sum, order) => sum + (Number(order.totalPrice) || 0), 0);
   const statuses = state.accounts.map(getAccountStatusInfo);
   els.statCheckouts.textContent = String(state.orders.length);
   els.statProfit.textContent = peso(profit);
+  if (els.statRevenue) els.statRevenue.textContent = peso(revenue);
   els.statAvailable.textContent = String(statuses.filter(s => s.status === 'Available').length);
   els.statExpired.textContent = String(statuses.filter(s => s.status === 'Expired').length);
   els.statItems.textContent = String(state.orders.reduce((sum, order) => sum + (Number(order.itemCount) || 0), 0));
@@ -172,35 +174,47 @@ function renderAccounts() {
 
 function renderOrders() {
   const groups = getOrderGroups();
-  els.ordersList.innerHTML = groups.length ? groups.map(group => {
+  if (!groups.length) {
+    els.ordersList.innerHTML = '<article class="card"><p class="meta-sub">No orders yet.</p></article>';
+    return;
+  }
+
+  const rows = groups.map(group => {
     const tracking = uniqueTracking(group.checkouts).join(', ') || '—';
+    const revenue = group.checkouts.reduce((sum, item) => sum + (Number(item.totalPrice) || 0), 0);
     return `
-      <button class="card order-row" type="button" data-open-batch="${group.batchId}">
+      <button class="order-list-row table-row" type="button" data-open-batch="${group.batchId}">
         <div>
-          <span class="meta-label">Customer</span>
           <strong class="meta-main">${escapeHtml(group.customerLabel)}</strong>
           <span class="meta-sub">${group.checkouts.length} checkout${group.checkouts.length > 1 ? 's' : ''}</span>
         </div>
         <div>
-          <span class="meta-label">Order Date</span>
           <strong class="meta-main">${formatDate(group.orderDate)}</strong>
           <span class="meta-sub">${formatTime(group.orderDate)}</span>
         </div>
+        <div><span class="badge ${normalizeStatusClass(group.status)}">${group.status}</span></div>
         <div>
-          <span class="meta-label">Status</span>
-          <span class="badge ${normalizeStatusClass(group.status)}">${group.status}</span>
-        </div>
-        <div>
-          <span class="meta-label">Tracking</span>
           <strong class="meta-main">${escapeHtml(tracking)}</strong>
         </div>
-        <div>
-          <span class="meta-label">Profit</span>
-          <strong class="meta-main">${peso(group.totalProfit)}</strong>
-        </div>
+        <div><strong class="meta-main">${peso(revenue)}</strong></div>
+        <div><strong class="meta-main">${peso(group.totalProfit)}</strong></div>
       </button>
     `;
-  }).join('') : '<article class="card"><p class="meta-sub">No orders yet.</p></article>';
+  }).join('');
+
+  els.ordersList.innerHTML = `
+    <section class="table-shell orders-table-shell">
+      <div class="order-list-row table-head">
+        <div>Customer</div>
+        <div>Order Date</div>
+        <div>Status</div>
+        <div>Tracking</div>
+        <div>Revenue</div>
+        <div>Profit</div>
+      </div>
+      ${rows}
+    </section>
+  `;
 }
 
 function openAccountModal(accountId = null) {
@@ -350,13 +364,15 @@ function openBatchModal(batchId) {
   const group = getOrderGroups().find(item => item.batchId === batchId);
   if (!group) return;
   els.batchModalTitle.textContent = group.customerLabel;
+  const revenue = group.checkouts.reduce((sum, item) => sum + (Number(item.totalPrice) || 0), 0);
   els.batchSummary.innerHTML = `
     <article class="card">
-      <div class="checkout-row">
+      <div class="batch-metrics">
         <div><span class="meta-label">Order Date</span><strong class="meta-main">${formatDateTime(group.orderDate)}</strong></div>
         <div><span class="meta-label">Status</span><span class="badge ${normalizeStatusClass(group.status)}">${group.status}</span></div>
         <div><span class="meta-label">Tracking</span><strong class="meta-main">${escapeHtml(uniqueTracking(group.checkouts).join(', ') || '—')}</strong></div>
         <div><span class="meta-label">Items</span><strong class="meta-main">${group.totalItems}</strong></div>
+        <div><span class="meta-label">Revenue</span><strong class="meta-main">${peso(revenue)}</strong></div>
         <div><span class="meta-label">Profit</span><strong class="meta-main">${peso(group.totalProfit)}</strong></div>
       </div>
     </article>
@@ -367,20 +383,26 @@ function openBatchModal(batchId) {
 
 function renderBatchCheckouts(checkouts) {
   els.batchCheckouts.innerHTML = checkouts.map(order => `
-    <article class="card checkout-row">
-      <div><span class="meta-label">Voucher</span><strong class="meta-main">${escapeHtml(order.voucherUsed)}</strong></div>
-      <div><span class="meta-label">Account</span><strong class="meta-main">${escapeHtml(getAccountById(order.accountId)?.email || 'Unknown')}</strong></div>
-      <div><span class="meta-label">Pricing</span><strong class="meta-main">${peso(order.totalPrice)}</strong><span class="meta-sub">Checkout ${peso(order.discountedPrice)} · Refund ${peso(order.refund)}</span></div>
-      <div><span class="meta-label">Tracking</span><strong class="meta-main">${escapeHtml(order.tracking || '—')}</strong></div>
-      <div>
-        <span class="meta-label">Status</span>
-        <select class="inline-select inline-status" data-order-id="${order.id}">
-          ${STATUS_OPTIONS.map(status => `<option value="${status}" ${status === normalizeStatus(order.deliveryStatus) ? 'selected' : ''}>${status}</option>`).join('')}
-        </select>
-        <div class="row-actions" style="margin-top:8px;">
-          <button type="button" data-edit-order="${order.id}">Edit</button>
-          <button type="button" class="danger-btn" data-delete-order="${order.id}">Delete</button>
+    <article class="card checkout-detail-card">
+      <div class="checkout-detail-grid">
+        <div><span class="meta-label">Voucher</span><strong class="meta-main">${escapeHtml(order.voucherUsed)}</strong></div>
+        <div><span class="meta-label">Account</span><strong class="meta-main">${escapeHtml(getAccountById(order.accountId)?.email || 'Unknown')}</strong></div>
+        <div><span class="meta-label">Items</span><strong class="meta-main">${escapeHtml(String(order.itemCount || 0))}</strong></div>
+        <div><span class="meta-label">Revenue</span><strong class="meta-main">${peso(order.totalPrice)}</strong></div>
+        <div><span class="meta-label">Checkout Cost</span><strong class="meta-main">${peso(order.discountedPrice)}</strong></div>
+        <div><span class="meta-label">Refund</span><strong class="meta-main">${peso(order.refund)}</strong></div>
+        <div><span class="meta-label">Tracking</span><strong class="meta-main">${escapeHtml(order.tracking || '—')}</strong></div>
+        <div>
+          <span class="meta-label">Status</span>
+          <select class="inline-select inline-status" data-order-id="${order.id}">
+            ${STATUS_OPTIONS.map(status => `<option value="${status}" ${status === normalizeStatus(order.deliveryStatus) ? 'selected' : ''}>${status}</option>`).join('')}
+          </select>
         </div>
+        <div><span class="meta-label">Profit</span><strong class="meta-main">${peso(getOrderProfit(order))}</strong></div>
+      </div>
+      <div class="row-actions checkout-actions">
+        <button type="button" data-edit-order="${order.id}">Edit</button>
+        <button type="button" class="danger-btn" data-delete-order="${order.id}">Delete</button>
       </div>
     </article>
   `).join('');
@@ -588,61 +610,6 @@ function slugify(value) { return String(value || '').normalize('NFD').replace(/[
 function clampNumber(value, min, fallback) { const n = Number(value); return Number.isFinite(n) && n >= min ? n : fallback; }
 function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
 function escapeAttr(value) { return escapeHtml(value); }
-
-
-function normalizeStateData() {
-  state.accounts = (state.accounts || []).map((account, index) => ({
-    id: account.id || uid('acct'),
-    email: String(account.email || '').trim(),
-    password: String(account.password || '').trim(),
-    cost: clampNumber(account.cost, 0, 190),
-    expiryHours: clampNumber(account.expiryHours, 1, 20),
-    purchasedAt: account.purchasedAt || new Date().toISOString(),
-    availableVouchers: normalizeAccountVouchers(account)
-  })).filter(account => account.email);
-
-  state.orders = (state.orders || []).map((order, index) => ({
-    id: order.id || uid('ord'),
-    batchId: String(order.batchId || generateMissingBatchId(order, index)),
-    checkoutId: String(order.checkoutId || ''),
-    customerName: String(order.customerName || 'Customer').trim(),
-    customerTag: String(order.customerTag || '').trim(),
-    createdAt: order.createdAt || new Date().toISOString(),
-    itemCount: clampNumber(order.itemCount, 1, 1),
-    accountId: String(order.accountId || ''),
-    voucherUsed: String(order.voucherUsed || '').trim(),
-    tracking: String(order.tracking || '').trim(),
-    totalPrice: clampNumber(order.totalPrice, 0, 0),
-    discountedPrice: clampNumber(order.discountedPrice, 0, 0),
-    refund: clampNumber(order.refund, 0, 0),
-    deliveryStatus: normalizeStatus(order.deliveryStatus)
-  })).filter(order => order.customerName);
-
-  const batches = new Map();
-  state.orders.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
-  state.orders.forEach(order => {
-    if (!batches.has(order.batchId)) batches.set(order.batchId, []);
-    batches.get(order.batchId).push(order);
-  });
-  batches.forEach((orders, batchId) => {
-    orders.forEach((order, idx) => {
-      order.checkoutId = `${batchId}-${String(idx + 1).padStart(2, '0')}`;
-    });
-  });
-  saveState();
-}
-
-function normalizeAccountVouchers(account) {
-  if (Array.isArray(account.availableVouchers)) return uniqueByVoucherKey(account.availableVouchers.map(v => String(v || '').trim()).filter(Boolean));
-  if (typeof account.availableVouchers === 'string') return splitVouchers(account.availableVouchers);
-  if (typeof account.vouchers === 'string') return splitVouchers(account.vouchers);
-  return [];
-}
-
-function generateMissingBatchId(order, index) {
-  const base = slugify(`${order.customerName || 'CUSTOMER'} ${order.customerTag || ''}`).slice(0,18) || 'CUSTOMER';
-  return `${base}-${String(index + 1).padStart(3, '0')}`;
-}
 
 function loadState() {
   try {
