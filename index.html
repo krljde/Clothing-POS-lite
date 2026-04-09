@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Botique POS</title>
+  <title>SHEIN POS Lite</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -14,7 +14,7 @@
         <div class="brand-icon">🛍</div>
         <div>
           <span class="brand-eyebrow">Boutique POS</span>
-          <span class="brand-name">Kaycee's Clo.</span>
+          <span class="brand-name">SHEIN POS Lite</span>
         </div>
       </div>
       <nav class="topnav" aria-label="Primary">
@@ -24,10 +24,15 @@
         <button class="nav-btn" data-view-target="customers-view" type="button">Customers</button>
       </nav>
       <div class="topbar-actions">
-        <button type="button" class="btn btn-secondary btn-sm" id="export-btn" title="Export backup">⬇ Export</button>
-        <label class="btn btn-secondary btn-sm" title="Import backup" style="cursor:pointer">
-          ⬆ Import <input type="file" id="import-input" accept=".json" style="display:none" />
-        </label>
+        <div class="cog-menu" id="cog-menu">
+          <button type="button" class="btn btn-secondary btn-sm cog-toggle" id="cog-toggle" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
+          <div class="cog-dropdown" id="cog-dropdown" hidden>
+            <button type="button" class="cog-item" id="export-btn">⬇ Export backup</button>
+            <label class="cog-item" style="cursor:pointer">
+              ⬆ Import backup <input type="file" id="import-input" accept=".json" style="display:none" />
+            </label>
+          </div>
+        </div>
       </div>
     </header>
 
