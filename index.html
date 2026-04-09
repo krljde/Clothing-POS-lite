@@ -8,10 +8,14 @@
 </head>
 <body>
   <div class="app-shell">
+
     <header class="topbar">
-      <div>
-        <span class="eyebrow">Boutique POS</span>
-        <h1>SHEIN POS Lite</h1>
+      <div class="brand">
+        <div class="brand-icon">🛍</div>
+        <div>
+          <span class="brand-eyebrow">Boutique POS</span>
+          <span class="brand-name">SHEIN POS Lite</span>
+        </div>
       </div>
       <nav class="topnav" aria-label="Primary">
         <button class="nav-btn active" data-view-target="home-view" type="button">Home</button>
@@ -21,186 +25,265 @@
     </header>
 
     <main class="content">
+
+      <!-- ── HOME ─────────────────────────────────── -->
       <section class="view active" id="home-view">
-        <div class="section-head">
+        <div class="page-header">
           <div>
-            <span class="section-kicker">Overview</span>
+            <span class="page-kicker">Overview</span>
             <h2>Dashboard</h2>
           </div>
         </div>
 
-        <section class="summary-grid">
-          <article class="card stat-card">
-            <span class="label">Total Checkouts</span>
-            <strong class="value" id="stat-checkouts">0</strong>
+        <div class="stat-grid">
+          <article class="stat-card">
+            <div class="stat-icon si-blue">📦</div>
+            <span class="stat-label">Total Checkouts</span>
+            <span class="stat-value" id="stat-checkouts">0</span>
           </article>
-          <article class="card stat-card">
-            <span class="label">Total Profit</span>
-            <strong class="value" id="stat-profit">₱0</strong>
+          <article class="stat-card">
+            <div class="stat-icon si-green">💰</div>
+            <span class="stat-label">Total Profit</span>
+            <span class="stat-value" id="stat-profit">₱0</span>
           </article>
-          <article class="card stat-card">
-            <span class="label">Revenue</span>
-            <strong class="value" id="stat-revenue">₱0</strong>
+          <article class="stat-card">
+            <div class="stat-icon si-amber">💳</div>
+            <span class="stat-label">Revenue</span>
+            <span class="stat-value" id="stat-revenue">₱0</span>
           </article>
-          <article class="card stat-card">
-            <span class="label">Available Accounts</span>
-            <strong class="value" id="stat-available">0</strong>
+          <article class="stat-card">
+            <div class="stat-icon si-accent">✅</div>
+            <span class="stat-label">Available Accounts</span>
+            <span class="stat-value" id="stat-available">0</span>
           </article>
-          <article class="card stat-card">
-            <span class="label">Expired Accounts</span>
-            <strong class="value" id="stat-expired">0</strong>
+          <article class="stat-card">
+            <div class="stat-icon si-red">⏰</div>
+            <span class="stat-label">Expired Accounts</span>
+            <span class="stat-value" id="stat-expired">0</span>
           </article>
-          <article class="card stat-card wide">
-            <span class="label">Total Items Sold</span>
-            <strong class="value" id="stat-items">0</strong>
+          <article class="stat-card">
+            <div class="stat-icon si-purple">🛒</div>
+            <span class="stat-label">Items Sold</span>
+            <span class="stat-value" id="stat-items">0</span>
           </article>
-        </section>
+        </div>
 
-        <section class="card home-list">
-          <div class="section-head compact">
-            <div>
-              <span class="section-kicker">Recent</span>
-              <h3>Latest Orders</h3>
-            </div>
-          </div>
-          <div id="recent-orders"></div>
-        </section>
+        <div class="recent-card">
+          <span class="section-label">Recent</span>
+          <h3>Latest Orders</h3>
+          <div id="recent-orders" class="recent-list"></div>
+        </div>
       </section>
 
+      <!-- ── ACCOUNTS ───────────────────────────────── -->
       <section class="view" id="accounts-view">
-        <div class="section-head">
+        <div class="page-header">
           <div>
-            <span class="section-kicker">Accounts</span>
+            <span class="page-kicker">Accounts</span>
             <h2>Manage Accounts</h2>
           </div>
-          <div class="toolbar">
-            <select id="account-sort">
+          <div class="page-header-right">
+            <select id="account-sort" class="toolbar-select">
               <option value="available">Available first</option>
               <option value="expired">Expired first</option>
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
             </select>
-            <button type="button" id="open-account-modal">Add Account</button>
+            <button type="button" id="open-account-modal" class="btn btn-primary">+ Add Account</button>
           </div>
         </div>
-
         <div class="list-stack" id="accounts-list"></div>
       </section>
 
+      <!-- ── ORDERS ─────────────────────────────────── -->
       <section class="view" id="orders-view">
-        <div class="section-head">
+        <div class="page-header">
           <div>
-            <span class="section-kicker">Orders</span>
+            <span class="page-kicker">Orders</span>
             <h2>Customer Orders</h2>
           </div>
         </div>
-        <div class="list-stack" id="orders-list"></div>
+        <div id="orders-list"></div>
       </section>
+
     </main>
   </div>
 
   <button class="fab" id="open-checkout-modal" type="button" aria-label="Add new checkout">+</button>
 
+  <!-- ── ACCOUNT MODAL ──────────────────────────────── -->
   <div class="modal" id="account-modal" hidden>
     <div class="modal-backdrop" data-close-modal="account-modal"></div>
     <div class="modal-panel">
-      <div class="modal-head">
+      <div class="modal-header">
         <div>
-          <span class="section-kicker">Account</span>
+          <span class="modal-kicker">Account</span>
           <h2 id="account-modal-title">Add Account</h2>
         </div>
-        <button type="button" class="ghost-btn" data-close-modal="account-modal">Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="account-modal">✕ Close</button>
       </div>
-      <form id="account-form" class="form-grid">
-        <input type="hidden" name="accountId" />
-        <input name="email" placeholder="Email" required />
-        <input name="password" placeholder="Password" />
-        <input name="cost" type="number" step="0.01" min="0" value="190" placeholder="Account cost" required />
-        <input name="expiryHours" type="number" step="1" min="1" max="24" value="20" placeholder="Expiry hours" required />
-        <input name="vouchers" class="span-2" placeholder="Available vouchers (83%, 79%, FS)" required />
-        <div class="modal-actions span-2">
-          <button type="submit">Save Account</button>
+      <form id="account-form">
+        <div class="modal-body">
+          <input type="hidden" name="accountId" />
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Email *</label>
+              <input class="form-input" name="email" placeholder="account@email.com" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Password</label>
+              <input class="form-input" name="password" placeholder="Account password" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Account Cost (₱) *</label>
+              <input class="form-input" name="cost" type="number" step="0.01" min="0" value="190" placeholder="190" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Expiry Hours *</label>
+              <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="20" placeholder="20" required />
+            </div>
+            <div class="form-group span-2">
+              <label class="form-label">Available Vouchers * <span style="font-weight:400;color:var(--text-3)">(comma or + separated)</span></label>
+              <input class="form-input" name="vouchers" placeholder="83%, 79%, FS" required />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="account-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Account</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- ── CHECKOUT MODAL ─────────────────────────────── -->
   <div class="modal" id="checkout-modal" hidden>
     <div class="modal-backdrop" data-close-modal="checkout-modal"></div>
     <div class="modal-panel large">
-      <div class="modal-head">
+      <div class="modal-header">
         <div>
-          <span class="section-kicker">Checkout</span>
+          <span class="modal-kicker">New Order</span>
           <h2>Add Checkout Batch</h2>
         </div>
-        <button type="button" class="ghost-btn" data-close-modal="checkout-modal">Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="checkout-modal">✕ Close</button>
       </div>
       <form id="order-form">
-        <div class="form-grid">
-          <input name="customerName" list="customer-list" placeholder="Customer name" required />
-          <datalist id="customer-list"></datalist>
-          <input name="customerTag" placeholder="Optional note / identifier" />
-          <select name="checkoutCount" id="checkout-count">
-            <option value="1">1 checkout</option>
-            <option value="2">2 checkouts</option>
-            <option value="3">3 checkouts</option>
-            <option value="4">4 checkouts</option>
-            <option value="5">5 checkouts</option>
-            <option value="6">6 checkouts</option>
-          </select>
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Customer Name *</label>
+              <input class="form-input" name="customerName" list="customer-list" placeholder="Enter name" required />
+              <datalist id="customer-list"></datalist>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Note / Identifier</label>
+              <input class="form-input" name="customerTag" placeholder="Optional tag" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Number of Checkouts</label>
+              <select class="form-select" name="checkoutCount" id="checkout-count">
+                <option value="1">1 checkout</option>
+                <option value="2">2 checkouts</option>
+                <option value="3">3 checkouts</option>
+                <option value="4">4 checkouts</option>
+                <option value="5">5 checkouts</option>
+                <option value="6">6 checkouts</option>
+              </select>
+            </div>
+          </div>
+          <div id="checkout-groups" class="checkout-groups"></div>
         </div>
-        <div id="checkout-groups" class="checkout-groups"></div>
-        <div class="modal-actions">
-          <button type="submit">Save Checkout Batch</button>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="checkout-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Batch</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- ── BATCH MODAL ────────────────────────────────── -->
   <div class="modal" id="batch-modal" hidden>
     <div class="modal-backdrop" data-close-modal="batch-modal"></div>
     <div class="modal-panel large">
-      <div class="modal-head">
+      <div class="modal-header">
         <div>
-          <span class="section-kicker">Order</span>
-          <h2 id="batch-modal-title">Order Details</h2>
+          <span class="modal-kicker">Order Details</span>
+          <h2 id="batch-modal-title">Order</h2>
         </div>
-        <button type="button" class="ghost-btn" data-close-modal="batch-modal">Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="batch-modal">✕ Close</button>
       </div>
-      <div id="batch-summary" class="batch-summary"></div>
-      <div id="batch-checkouts" class="list-stack"></div>
+      <div class="modal-body">
+        <div id="batch-summary"></div>
+        <div id="batch-checkouts" class="list-stack"></div>
+      </div>
     </div>
   </div>
 
+  <!-- ── EDIT CHECKOUT MODAL ────────────────────────── -->
   <div class="modal" id="edit-checkout-modal" hidden>
     <div class="modal-backdrop" data-close-modal="edit-checkout-modal"></div>
     <div class="modal-panel large">
-      <div class="modal-head">
+      <div class="modal-header">
         <div>
-          <span class="section-kicker">Edit</span>
+          <span class="modal-kicker">Edit</span>
           <h2>Edit Checkout</h2>
         </div>
-        <button type="button" class="ghost-btn" data-close-modal="edit-checkout-modal">Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="edit-checkout-modal">✕ Close</button>
       </div>
-      <form id="edit-order-form" class="form-grid">
-        <input name="orderId" type="hidden" />
-        <input name="customerName" placeholder="Customer name" required />
-        <input name="customerTag" placeholder="Optional note / identifier" />
-        <input name="itemCount" type="number" min="1" step="1" placeholder="Item count" required />
-        <select name="accountId" id="edit-account-id" required></select>
-        <select name="voucherUsed" id="edit-voucher-used" required></select>
-        <input name="tracking" placeholder="Tracking number" />
-        <input name="totalPrice" type="number" step="0.01" min="0" placeholder="Total price" required />
-        <input name="discountedPrice" type="number" step="0.01" min="0" placeholder="Discounted price" required />
-        <input name="refund" type="number" step="0.01" min="0" placeholder="Refund" />
-        <select name="deliveryStatus" required>
-          <option>Processing</option>
-          <option>Shipped</option>
-          <option>Delivered</option>
-          <option>Cancelled</option>
-        </select>
-        <div class="modal-actions span-2">
-          <button type="submit">Save Changes</button>
+      <form id="edit-order-form">
+        <div class="modal-body">
+          <input name="orderId" type="hidden" />
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Customer Name *</label>
+              <input class="form-input" name="customerName" placeholder="Customer name" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Note / Identifier</label>
+              <input class="form-input" name="customerTag" placeholder="Optional tag" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Item Count *</label>
+              <input class="form-input" name="itemCount" type="number" min="1" step="1" placeholder="1" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Account *</label>
+              <select class="form-select" name="accountId" id="edit-account-id" required></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Voucher Used *</label>
+              <select class="form-select" name="voucherUsed" id="edit-voucher-used" required></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tracking Number</label>
+              <input class="form-input" name="tracking" placeholder="Tracking #" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Price (₱) *</label>
+              <input class="form-input" name="totalPrice" type="number" step="0.01" min="0" placeholder="0.00" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Discounted Price (₱) *</label>
+              <input class="form-input" name="discountedPrice" type="number" step="0.01" min="0" placeholder="0.00" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Refund (₱)</label>
+              <input class="form-input" name="refund" type="number" step="0.01" min="0" placeholder="0.00" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Delivery Status *</label>
+              <select class="form-select" name="deliveryStatus" required>
+                <option>Processing</option>
+                <option>Shipped</option>
+                <option>Delivered</option>
+                <option>Cancelled</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="edit-checkout-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
     </div>
