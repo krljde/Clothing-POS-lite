@@ -53,8 +53,7 @@ If:
 
 Then:
  - Account Cost Share = 190 / 2 = 95 per checkout
- - 
-Each checkout only carries its portion of the account cost.
+ Each checkout only carries its portion of the account cost.
 
 ---
 
