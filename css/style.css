@@ -305,6 +305,25 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ─── Topbar actions ──────────────────────────────────── */
 .topbar-actions { display: flex; gap: 6px; align-items: center; }
+
+/* ─── Cog menu ────────────────────────────────────────── */
+.cog-menu { position: relative; }
+.cog-toggle { font-size: 16px; padding: 0 10px; min-width: 36px; }
+.cog-dropdown {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+  min-width: 170px; z-index: 200; overflow: hidden;
+  animation: modalIn 160ms cubic-bezier(.34,1.56,.64,1);
+}
+.cog-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 11px 16px;
+  font-size: 13px; font-weight: 600; color: var(--text);
+  background: none; border: none; cursor: pointer; text-align: left;
+  transition: background var(--t);
+}
+.cog-item:hover { background: var(--surface-2); }
 @media (max-width: 640px) {
   .topbar { flex-wrap: wrap; }
   .topbar-actions { width: 100%; justify-content: flex-end; }
