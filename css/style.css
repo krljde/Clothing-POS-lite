@@ -195,6 +195,8 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ─── Modals ──────────────────────────────────────────── */
 .modal { position: fixed; inset: 0; display: grid; place-items: center; z-index: 100; padding: 12px; }
+#batch-modal { z-index: 110; }
+#edit-checkout-modal { z-index: 120; }
 .modal[hidden] { display: none; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(42,31,26,.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .modal-panel {
@@ -241,6 +243,9 @@ button { cursor: pointer; border: none; background: none; }
 .checkout-card { border: 1.5px solid var(--border); border-radius: var(--radius-lg); padding: 16px; background: var(--surface-2); }
 .checkout-card-head { display: flex; align-items: center; margin-bottom: 14px; }
 .checkout-num { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: 3px 10px; border-radius: 999px; }
+.checkout-card-row { grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 640px) { .checkout-card-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 420px) { .checkout-card-row { grid-template-columns: 1fr; } }
 
 /* ─── Batch Modal ─────────────────────────────────────── */
 .batch-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
@@ -287,6 +292,7 @@ button { cursor: pointer; border: none; background: none; }
   .page-header { flex-direction: column; }
   .page-header-right { justify-content: flex-start; }
   .form-row { grid-template-columns: 1fr; }
+  .form-row.checkout-card-row { grid-template-columns: 1fr 1fr; }
   .form-row .span-2 { grid-column: span 1; }
   .modal-panel { border-radius: var(--radius-lg); }
   .modal-panel.large { max-width: 100%; }
@@ -376,6 +382,9 @@ button { cursor: pointer; border: none; background: none; }
 .qbtn-cancelled  { background: var(--surface-2);   color: var(--text-3); border-color: var(--border); }
 .qbtn:hover { filter: brightness(.93); transform: translateY(-1px); }
 .qbtn:active { transform: scale(.97); }
+@media (max-width: 860px) {
+  .quick-status-bar { display: none; }
+}
 
 /* ─── Customer history card ───────────────────────────── */
 .customer-card {
