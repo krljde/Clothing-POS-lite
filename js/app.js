@@ -78,6 +78,21 @@ function bindEvents() {
   els.exportBtn.addEventListener('click', exportBackup);
   els.importInput.addEventListener('change', importBackup);
 
+  // Cog menu toggle
+  const cogToggle = document.getElementById('cog-toggle');
+  const cogDropdown = document.getElementById('cog-dropdown');
+  cogToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !cogDropdown.hidden;
+    cogDropdown.hidden = isOpen;
+    cogToggle.setAttribute('aria-expanded', String(!isOpen));
+  });
+  document.addEventListener('click', () => {
+    cogDropdown.hidden = true;
+    cogToggle.setAttribute('aria-expanded', 'false');
+  });
+  cogDropdown.addEventListener('click', (e) => e.stopPropagation());
+
   // Order search + filter
   els.orderSearch.addEventListener('input', () => {
     orderFilter.query = els.orderSearch.value.trim();
@@ -780,6 +795,7 @@ function deleteOrder(orderId) {
 
 /* ─── Export / Import ─────────────────────────────────── */
 function exportBackup() {
+  document.getElementById('cog-dropdown').hidden = true;
   const data = JSON.stringify({ accounts: state.accounts, orders: state.orders, exportedAt: new Date().toISOString() }, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -866,7 +882,13 @@ function summarizeGroupStatus(checkouts) {
   return 'Processing';
 }
 
-function getOrderProfit(o) { return Number(o.totalPrice||0) - Number(o.discountedPrice||0) + Number(o.refund||0); }
+function getOrderProfit(o) {
+  const account = getAccountById(o.accountId);
+  const accountCost = Number(account?.cost || 0);
+  const ordersOnAccount = state.orders.filter(x => x.accountId === o.accountId).length || 1;
+  const costShare = accountCost / ordersOnAccount;
+  return Number(o.totalPrice||0) - Number(o.discountedPrice||0) + Number(o.refund||0) - costShare;
+}
 function getAccountById(id) { return state.accounts.find(a => a.id === id) || null; }
 function getExpiresAt(a) { return new Date(new Date(a.purchasedAt).getTime() + a.expiryHours * 3600000); }
 function hoursLeftLabel(a) { const hrs = (getExpiresAt(a).getTime() - Date.now()) / 3600000; return hrs <= 0 ? 'Expired' : `${Math.floor(hrs)}h left`; }
