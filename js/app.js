@@ -242,12 +242,23 @@ function renderAccounts() {
   els.accountsList.innerHTML = accounts.map(account => {
     const info = getAccountStatusInfo(account);
     const title = info.remainingVouchers.length ? `Available: ${info.remainingVouchers.join(', ')}` : info.status;
+    const ordersOnAccount = state.orders.filter(o => o.accountId === account.id);
+    const totalRevenue = ordersOnAccount.reduce((s, o) => s + Number(o.totalPrice || 0), 0);
+    const totalCheckoutCost = ordersOnAccount.reduce((s, o) => s + Number(o.discountedPrice || 0), 0);
+    const totalRefund = ordersOnAccount.reduce((s, o) => s + Number(o.refund || 0), 0);
+    const netProfit = totalRevenue - totalCheckoutCost + totalRefund - Number(account.cost || 0);
+    const pnlClass = netProfit > 0 ? 'profit' : netProfit < 0 ? 'loss' : 'neutral';
+    const pnlLabel = netProfit > 0
+      ? `+${peso(netProfit)} profit`
+      : netProfit < 0
+        ? `${peso(Math.abs(netProfit))} to break even`
+        : 'Break even';
     return `
       <article class="account-row">
         <div class="account-main">
           <div>
             <span class="field-label">Account</span>
-            <span class="field-main">${escapeHtml(account.email)}</span>
+            <span class="field-main wrap">${escapeHtml(account.email)}</span>
             <span class="field-sub">${escapeHtml(account.password || 'No password saved')}</span>
           </div>
           <div>
@@ -268,6 +279,10 @@ function renderAccounts() {
           <div>
             <span class="field-label">Status</span>
             <span class="badge ${info.status.toLowerCase()}" title="${escapeHtml(title)}">${info.status}</span>
+          </div>
+          <div>
+            <span class="field-label">P&amp;L</span>
+            <span class="acct-pnl ${pnlClass}">${pnlLabel}</span>
           </div>
         </div>
         <div class="account-actions">
@@ -659,11 +674,16 @@ function openBatchModal(batchId) {
 }
 
 function renderBatchCheckouts(checkouts) {
-  els.batchCheckouts.innerHTML = checkouts.map(order => `
+  els.batchCheckouts.innerHTML = checkouts.map(order => {
+    const account = getAccountById(order.accountId);
+    const accountCost = Number(account?.cost || 0);
+    const ordersOnAccount = state.orders.filter(x => x.accountId === order.accountId).length || 1;
+    const costShare = accountCost / ordersOnAccount;
+    return `
     <article class="checkout-detail-card">
       <div class="checkout-detail-grid">
         <div><span class="field-label">Voucher</span><span class="field-main">${escapeHtml(order.voucherUsed)}</span></div>
-        <div><span class="field-label">Account</span><span class="field-main">${escapeHtml(getAccountById(order.accountId)?.email || 'Unknown')}</span></div>
+        <div><span class="field-label">Account</span><span class="field-main wrap">${escapeHtml(account?.email || 'Unknown')}</span></div>
         <div><span class="field-label">Items</span><span class="field-main">${escapeHtml(String(order.itemCount || 0))}</span></div>
         <div><span class="field-label">Revenue</span><span class="field-main">${peso(order.totalPrice)}</span></div>
         <div><span class="field-label">Checkout Cost</span><span class="field-main">${peso(order.discountedPrice)}</span></div>
@@ -674,6 +694,11 @@ function renderBatchCheckouts(checkouts) {
           <select class="inline-status" data-order-id="${order.id}">
             ${STATUS_OPTIONS.map(s => `<option value="${s}" ${s === normalizeStatus(order.deliveryStatus) ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
+        </div>
+        <div>
+          <span class="field-label">Acct Cost Share</span>
+          <span class="field-main" style="color:var(--text-3)">−${peso(costShare)}</span>
+          <span class="field-sub">${peso(accountCost)} ÷ ${ordersOnAccount} order${ordersOnAccount !== 1 ? 's' : ''}</span>
         </div>
         <div><span class="field-label">Profit</span><span class="field-main" style="color:var(--green)">${peso(getOrderProfit(order))}</span></div>
       </div>
@@ -690,7 +715,7 @@ function renderBatchCheckouts(checkouts) {
         <button type="button" class="btn btn-danger btn-sm" data-delete-order="${order.id}">Delete</button>
       </div>
     </article>
-  `).join('');
+  `; }).join('');
 }
 
 /* ─── Edit Checkout ───────────────────────────────────── */
