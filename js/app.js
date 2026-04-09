@@ -1,6 +1,7 @@
-const STORAGE_KEY = 'shein_pos_lite_v3';
+const STORAGE_KEY = 'shein_pos_lite_v4';
 
 const state = loadState();
+let editingOrderId = null;
 
 const accountForm = document.getElementById('account-form');
 const orderForm = document.getElementById('order-form');
@@ -9,10 +10,18 @@ const checkoutGroups = document.getElementById('checkout-groups');
 const customerList = document.getElementById('customer-list');
 const accountsTbody = document.getElementById('accounts-tbody');
 const ordersTbody = document.getElementById('orders-tbody');
+const editCheckoutCard = document.getElementById('edit-checkout-card');
+const editOrderForm = document.getElementById('edit-order-form');
+const editCustomerDisplay = document.getElementById('edit-customer-display');
+const editTracking = document.getElementById('edit-tracking');
+const editDeliveryStatus = document.getElementById('edit-delivery-status');
+const cancelEditBtn = document.getElementById('cancel-edit-btn');
 
 accountForm.addEventListener('submit', onAddAccount);
 orderForm.addEventListener('submit', onAddOrderBatch);
+editOrderForm.addEventListener('submit', onSaveOrderEdit);
 checkoutCountSelect.addEventListener('change', syncCheckoutGroups);
+cancelEditBtn.addEventListener('click', closeEditCard);
 document.getElementById('export-btn').addEventListener('click', exportBackup);
 document.getElementById('import-file').addEventListener('change', importBackup);
 document.getElementById('reset-btn').addEventListener('click', resetData);
@@ -20,8 +29,10 @@ document.getElementById('reset-btn').addEventListener('click', resetData);
 document.addEventListener('click', (e) => {
   const deleteAccountId = e.target.getAttribute('data-delete-account');
   const deleteOrderId = e.target.getAttribute('data-delete-order');
+  const editOrderId = e.target.getAttribute('data-edit-order');
   if (deleteAccountId) deleteAccount(deleteAccountId);
   if (deleteOrderId) deleteOrder(deleteOrderId);
+  if (editOrderId) openEditCard(editOrderId);
 });
 
 migrateLegacyData();
@@ -41,7 +52,7 @@ function loadState() {
 function migrateLegacyData() {
   if (state.accounts.length || state.orders.length) return;
 
-  const legacyKeys = ['shein_pos_lite_v2', 'shein_pos_lite_v1'];
+  const legacyKeys = ['shein_pos_lite_v3', 'shein_pos_lite_v2', 'shein_pos_lite_v1'];
   for (const key of legacyKeys) {
     try {
       const legacyRaw = localStorage.getItem(key);
@@ -63,7 +74,7 @@ function normalizeOrder(order, index = 0) {
   const customerName = String(order.customerName || '').trim();
   const normalized = normalizeCustomerKey(customerName);
   const batchId = order.batchId || `${normalized || 'CUSTOMER'}-${String(index + 1).padStart(3, '0')}`;
-  const checkoutId = order.checkoutId || `${batchId}-${String((index % 26) + 1).padStart(2, '0')}`;
+  const checkoutId = order.checkoutId || `${batchId}-${String((index % 99) + 1).padStart(2, '0')}`;
   return {
     id: order.id || uid('ord'),
     customerName,
@@ -77,10 +88,15 @@ function normalizeOrder(order, index = 0) {
     totalPrice: clampNumber(order.totalPrice, 0, 0),
     discountedPrice: clampNumber(order.discountedPrice, 0, 0),
     refund: clampNumber(order.refund, 0, 0),
-    deliveryStatus: String(order.deliveryStatus || 'Processing'),
-    delivered: Boolean(order.delivered),
+    deliveryStatus: normalizeStatus(order.deliveryStatus),
     createdAt: order.createdAt || new Date().toISOString(),
   };
+}
+
+function normalizeStatus(value) {
+  const allowed = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
+  const status = String(value || '').trim();
+  return allowed.includes(status) ? status : 'Processing';
 }
 
 function saveState() {
@@ -147,8 +163,7 @@ function onAddOrderBatch(e) {
       totalPrice: clampNumber(form.get(`totalPrice_${suffix}`), 0, 0),
       discountedPrice: clampNumber(form.get(`discountedPrice_${suffix}`), 0, 0),
       refund: clampNumber(form.get(`refund_${suffix}`), 0, 0),
-      deliveryStatus: String(form.get(`deliveryStatus_${suffix}`) || 'Processing'),
-      delivered: form.get(`delivered_${suffix}`) === 'on',
+      deliveryStatus: 'Processing',
       createdAt: new Date().toISOString(),
     };
 
@@ -161,6 +176,44 @@ function onAddOrderBatch(e) {
   checkoutCountSelect.value = '1';
   syncCheckoutGroups();
   render();
+}
+
+function onSaveOrderEdit(e) {
+  e.preventDefault();
+  if (!editingOrderId) return;
+
+  const order = state.orders.find(item => item.id === editingOrderId);
+  if (!order) {
+    closeEditCard();
+    return;
+  }
+
+  order.tracking = String(editTracking.value || '').trim();
+  order.deliveryStatus = normalizeStatus(editDeliveryStatus.value);
+  saveState();
+  closeEditCard();
+  render();
+}
+
+function openEditCard(orderId) {
+  const order = state.orders.find(item => item.id === orderId);
+  if (!order) return;
+
+  editingOrderId = order.id;
+  const customerLabel = order.customerTag ? `${order.customerName} (${order.customerTag})` : order.customerName;
+  editCustomerDisplay.value = customerLabel;
+  editTracking.value = order.tracking || '';
+  editDeliveryStatus.value = normalizeStatus(order.deliveryStatus);
+  editCheckoutCard.hidden = false;
+  editCheckoutCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  editTracking.focus();
+}
+
+function closeEditCard() {
+  editingOrderId = null;
+  editOrderForm.reset();
+  editDeliveryStatus.value = 'Processing';
+  editCheckoutCard.hidden = true;
 }
 
 function generateBatchId(customerName, customerTag = '') {
@@ -197,14 +250,10 @@ function syncCheckoutGroups() {
             <option value="">Select account</option>
           </select>
           <input name="voucherUsed_${n}" value="${escapeAttr(values.voucherUsed || '')}" placeholder="Voucher used (ex. 83%, 79% + 70%)" />
-          <input name="tracking_${n}" value="${escapeAttr(values.tracking || '')}" placeholder="Tracking / J&T" />
+          <input name="tracking_${n}" value="${escapeAttr(values.tracking || '')}" placeholder="Tracking / J&T (optional for now)" />
           <input name="totalPrice_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.totalPrice || '')}" placeholder="Total price paid by customer" required />
           <input name="discountedPrice_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.discountedPrice || '')}" placeholder="Discounted checkout price" required />
           <input name="refund_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.refund || '0')}" placeholder="Refund" />
-          <select name="deliveryStatus_${n}">
-            ${renderDeliveryOptions(values.deliveryStatus || 'Processing')}
-          </select>
-          <label class="checkbox-inline"><input type="checkbox" name="delivered_${n}" ${values.delivered ? 'checked' : ''} /> Delivered</label>
         </div>
       </div>
     `;
@@ -225,16 +274,9 @@ function captureCheckoutGroupValues() {
       totalPrice: card.querySelector(`[name="totalPrice_${n}"]`)?.value || '',
       discountedPrice: card.querySelector(`[name="discountedPrice_${n}"]`)?.value || '',
       refund: card.querySelector(`[name="refund_${n}"]`)?.value || '0',
-      deliveryStatus: card.querySelector(`[name="deliveryStatus_${n}"]`)?.value || 'Processing',
-      delivered: Boolean(card.querySelector(`[name="delivered_${n}"]`)?.checked),
     };
   });
   return values;
-}
-
-function renderDeliveryOptions(selectedValue) {
-  const options = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
-  return options.map(option => `<option ${option === selectedValue ? 'selected' : ''}>${option}</option>`).join('');
 }
 
 function renderAccountOptionsInGroups() {
@@ -268,6 +310,7 @@ function deleteAccount(accountId) {
 function deleteOrder(orderId) {
   if (!confirm('Delete this checkout?')) return;
   state.orders = state.orders.filter(o => o.id !== orderId);
+  if (editingOrderId === orderId) closeEditCard();
   saveState();
   render();
 }
@@ -346,7 +389,7 @@ function renderAccounts() {
 
 function renderOrders() {
   if (!state.orders.length) {
-    ordersTbody.innerHTML = `<tr><td colspan="12">No checkouts yet.</td></tr>`;
+    ordersTbody.innerHTML = `<tr><td colspan="11">No checkouts yet.</td></tr>`;
     return;
   }
 
@@ -367,8 +410,10 @@ function renderOrders() {
         <td>${formatPeso(order.refund)}</td>
         <td>${formatPeso(profit)}</td>
         <td>${escapeHtml(order.deliveryStatus)}</td>
-        <td>${order.delivered ? 'Yes' : 'No'}</td>
-        <td><button class="small-btn" data-delete-order="${escapeAttr(order.id)}">Delete</button></td>
+        <td>
+          <button class="small-btn" data-edit-order="${escapeAttr(order.id)}">Edit</button>
+          <button class="small-btn" data-delete-order="${escapeAttr(order.id)}">Delete</button>
+        </td>
       </tr>
     `;
   }).join('');
@@ -406,6 +451,7 @@ function importBackup(e) {
       state.accounts = parsed.accounts;
       state.orders = parsed.orders.map((order, index) => normalizeOrder(order, index));
       saveState();
+      closeEditCard();
       syncCheckoutGroups();
       render();
       alert('Backup imported.');
@@ -422,6 +468,7 @@ function resetData() {
   localStorage.removeItem(STORAGE_KEY);
   state.accounts = [];
   state.orders = [];
+  closeEditCard();
   syncCheckoutGroups();
   render();
 }
