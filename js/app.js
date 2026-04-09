@@ -350,7 +350,7 @@ function syncCheckoutGroups() {
     const n = index + 1;
     const values = currentValues[n] || {};
     return `
-      <div class="card" style="margin-top: 12px;">
+      <div class="card checkout-card">
         <h3>Checkout ${n}</h3>
         <div class="grid-4">
           <input name="itemCount_${n}" type="number" step="1" min="1" value="${escapeAttr(values.itemCount || '1')}" placeholder="Item count" />
