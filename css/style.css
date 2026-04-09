@@ -7,6 +7,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+body.modal-open { overflow: hidden; }
 .wrap { max-width: 1400px; margin: 0 auto; padding: 20px; }
 header { margin-bottom: 16px; }
 h1, h2 { margin: 0 0 8px; }
@@ -30,10 +31,15 @@ th, td { text-align: left; border-bottom: 1px solid var(--border); padding: 10px
 .badge.used { background: #eef3ff; }
 .badge.full { background: #f7f1ff; }
 .button-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.checkbox-inline { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
-.checkbox-inline input { width: auto; }
 .small-btn { width: auto; padding: 6px 10px; font-size: 12px; }
 .mono { font-family: monospace; word-break: break-all; }
+.inline-status { min-width: 120px; padding: 6px 8px; }
+.modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; }
+.modal[hidden] { display: none; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.modal-panel { position: relative; width: min(960px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2); }
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.modal-close { flex: 0 0 auto; }
 @media (max-width: 960px) {
   .summary-grid, .grid-4 { grid-template-columns: 1fr 1fr; }
 }
