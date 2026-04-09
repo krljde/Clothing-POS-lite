@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'shein_pos_lite_v1';
+const STORAGE_KEY = 'shein_pos_lite_v2';
 
 const state = loadState();
 
@@ -21,6 +21,7 @@ document.addEventListener('click', (e) => {
   if (deleteOrderId) deleteOrder(deleteOrderId);
 });
 
+migrateLegacyData();
 render();
 
 function loadState() {
@@ -30,6 +31,28 @@ function loadState() {
     return raw ? JSON.parse(raw) : empty;
   } catch {
     return empty;
+  }
+}
+
+function migrateLegacyData() {
+  if (state.accounts.length || state.orders.length) return;
+
+  try {
+    const legacyRaw = localStorage.getItem('shein_pos_lite_v1');
+    if (!legacyRaw) return;
+    const legacy = JSON.parse(legacyRaw);
+    if (!legacy || !Array.isArray(legacy.accounts) || !Array.isArray(legacy.orders)) return;
+
+    state.accounts = legacy.accounts;
+    state.orders = legacy.orders.map((order, index) => ({
+      ...order,
+      batchId: order.batchId || '',
+      checkoutId: order.checkoutId || `CHK-${String(index + 1).padStart(3, '0')}`,
+      itemCount: Number(order.itemCount || 1),
+    }));
+    saveState();
+  } catch {
+    // ignore failed migration
   }
 }
 
@@ -67,6 +90,9 @@ function onAddOrder(e) {
   const order = {
     id: uid('ord'),
     customerName: String(form.get('customerName') || '').trim(),
+    batchId: String(form.get('batchId') || '').trim(),
+    checkoutId: String(form.get('checkoutId') || '').trim() || generateCheckoutId(),
+    itemCount: clampNumber(form.get('itemCount'), 1, 1),
     accountId: String(form.get('accountId') || '').trim(),
     voucherUsed: String(form.get('voucherUsed') || '').trim(),
     tracking: String(form.get('tracking') || '').trim(),
@@ -81,13 +107,20 @@ function onAddOrder(e) {
   state.orders.push(order);
   saveState();
   orderForm.reset();
+  orderForm.itemCount.value = '1';
+  orderForm.refund.value = '0';
   render();
+}
+
+function generateCheckoutId() {
+  const count = state.orders.length + 1;
+  return `CHK-${String(count).padStart(3, '0')}`;
 }
 
 function deleteAccount(accountId) {
   const used = state.orders.some(o => o.accountId === accountId);
   if (used) {
-    alert('This account already has orders. Delete the related orders first.');
+    alert('This account already has checkouts. Delete the related checkouts first.');
     return;
   }
   if (!confirm('Delete this account?')) return;
@@ -97,7 +130,7 @@ function deleteAccount(accountId) {
 }
 
 function deleteOrder(orderId) {
-  if (!confirm('Delete this order?')) return;
+  if (!confirm('Delete this checkout?')) return;
   state.orders = state.orders.filter(o => o.id !== orderId);
   saveState();
   render();
@@ -128,17 +161,8 @@ function getAccountStatus(account) {
   return 'Active';
 }
 
-function getAccountCostShare(accountId) {
-  const account = getAccountById(accountId);
-  if (!account) return 0;
-  const usage = getAccountUsageCount(accountId);
-  if (!usage) return account.cost;
-  return account.cost / usage;
-}
-
 function getOrderProfit(order) {
-  const share = getAccountCostShare(order.accountId);
-  return order.refund + order.totalPrice - order.discountedPrice - share;
+  return order.totalPrice - order.discountedPrice + order.refund;
 }
 
 function render() {
@@ -192,25 +216,26 @@ function renderAccounts() {
 
 function renderOrders() {
   if (!state.orders.length) {
-    ordersTbody.innerHTML = `<tr><td colspan="12">No orders yet.</td></tr>`;
+    ordersTbody.innerHTML = `<tr><td colspan="14">No checkouts yet.</td></tr>`;
     return;
   }
 
   const sorted = [...state.orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   ordersTbody.innerHTML = sorted.map(order => {
     const account = getAccountById(order.accountId);
-    const share = getAccountCostShare(order.accountId);
     const profit = getOrderProfit(order);
     return `
       <tr>
         <td>${escapeHtml(order.customerName)}</td>
+        <td>${escapeHtml(order.batchId || '-')}</td>
+        <td>${escapeHtml(order.checkoutId || '-')}</td>
+        <td>${escapeHtml(order.itemCount || 1)}</td>
         <td class="mono">${escapeHtml(account?.email || 'Deleted account')}</td>
         <td>${escapeHtml(order.voucherUsed || '-')}</td>
         <td class="mono">${escapeHtml(order.tracking || '-')}</td>
         <td>${formatPeso(order.totalPrice)}</td>
         <td>${formatPeso(order.discountedPrice)}</td>
         <td>${formatPeso(order.refund)}</td>
-        <td>${formatPeso(share)}</td>
         <td>${formatPeso(profit)}</td>
         <td>${escapeHtml(order.deliveryStatus)}</td>
         <td>${order.delivered ? 'Yes' : 'No'}</td>
@@ -250,7 +275,12 @@ function importBackup(e) {
       const parsed = JSON.parse(reader.result);
       if (!parsed.accounts || !parsed.orders) throw new Error('Invalid backup file');
       state.accounts = parsed.accounts;
-      state.orders = parsed.orders;
+      state.orders = parsed.orders.map((order, index) => ({
+        ...order,
+        batchId: order.batchId || '',
+        checkoutId: order.checkoutId || `CHK-${String(index + 1).padStart(3, '0')}`,
+        itemCount: Number(order.itemCount || 1),
+      }));
       saveState();
       render();
       alert('Backup imported.');
