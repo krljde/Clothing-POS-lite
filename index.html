@@ -21,7 +21,14 @@
         <button class="nav-btn active" data-view-target="home-view" type="button">Home</button>
         <button class="nav-btn" data-view-target="accounts-view" type="button">Accounts</button>
         <button class="nav-btn" data-view-target="orders-view" type="button">Orders</button>
+        <button class="nav-btn" data-view-target="customers-view" type="button">Customers</button>
       </nav>
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="export-btn" title="Export backup">⬇ Export</button>
+        <label class="btn btn-secondary btn-sm" title="Import backup" style="cursor:pointer">
+          ⬆ Import <input type="file" id="import-input" accept=".json" style="display:none" />
+        </label>
+      </div>
     </header>
 
     <main class="content">
@@ -103,13 +110,49 @@
             <h2>Customer Orders</h2>
           </div>
         </div>
+        <!-- Search + Filter bar -->
+        <div class="filter-bar">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input class="search-input" id="order-search" type="text" placeholder="Search customer or tracking…" autocomplete="off" />
+            <button class="search-clear" id="order-search-clear" hidden type="button">✕</button>
+          </div>
+          <div class="filter-chips" id="status-filters">
+            <button class="chip active" data-status="">All</button>
+            <button class="chip" data-status="Processing">Processing</button>
+            <button class="chip" data-status="Shipped">Shipped</button>
+            <button class="chip" data-status="Delivered">Delivered</button>
+            <button class="chip" data-status="Cancelled">Cancelled</button>
+          </div>
+        </div>
         <div id="orders-list"></div>
+      </section>
+
+      <!-- ── CUSTOMERS ──────────────────────────────── -->
+      <section class="view" id="customers-view">
+        <div class="page-header">
+          <div>
+            <span class="page-kicker">Customers</span>
+            <h2>Customer History</h2>
+          </div>
+          <div class="page-header-right">
+            <div class="search-wrap" style="width:220px">
+              <span class="search-icon">🔍</span>
+              <input class="search-input" id="customer-search" type="text" placeholder="Search customer…" autocomplete="off" />
+              <button class="search-clear" id="customer-search-clear" hidden type="button">✕</button>
+            </div>
+          </div>
+        </div>
+        <div id="customers-list"></div>
       </section>
 
     </main>
   </div>
 
   <button class="fab" id="open-checkout-modal" type="button" aria-label="Add new checkout">+</button>
+
+  <!-- ── TOAST ──────────────────────────────────────── -->
+  <div id="toast" class="toast" hidden></div>
 
   <!-- ── ACCOUNT MODAL ──────────────────────────────── -->
   <div class="modal" id="account-modal" hidden>
@@ -120,7 +163,7 @@
           <span class="modal-kicker">Account</span>
           <h2 id="account-modal-title">Add Account</h2>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="account-modal">✕ Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="account-modal">✕</button>
       </div>
       <form id="account-form">
         <div class="modal-body">
@@ -136,14 +179,14 @@
             </div>
             <div class="form-group">
               <label class="form-label">Account Cost (₱) *</label>
-              <input class="form-input" name="cost" type="number" step="0.01" min="0" value="190" placeholder="190" required />
+              <input class="form-input" name="cost" type="number" step="0.01" min="0" value="190" required />
             </div>
             <div class="form-group">
               <label class="form-label">Expiry Hours *</label>
-              <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="20" placeholder="20" required />
+              <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="20" required />
             </div>
             <div class="form-group span-2">
-              <label class="form-label">Available Vouchers * <span style="font-weight:400;color:var(--text-3)">(comma or + separated)</span></label>
+              <label class="form-label">Available Vouchers * <span style="font-weight:400;color:var(--text-3)">(comma-separated)</span></label>
               <input class="form-input" name="vouchers" placeholder="83%, 79%, FS" required />
             </div>
           </div>
@@ -165,7 +208,7 @@
           <span class="modal-kicker">New Order</span>
           <h2>Add Checkout Batch</h2>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="checkout-modal">✕ Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="checkout-modal">✕</button>
       </div>
       <form id="order-form">
         <div class="modal-body">
@@ -210,7 +253,7 @@
           <span class="modal-kicker">Order Details</span>
           <h2 id="batch-modal-title">Order</h2>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="batch-modal">✕ Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="batch-modal">✕</button>
       </div>
       <div class="modal-body">
         <div id="batch-summary"></div>
@@ -228,7 +271,7 @@
           <span class="modal-kicker">Edit</span>
           <h2>Edit Checkout</h2>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="edit-checkout-modal">✕ Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="edit-checkout-modal">✕</button>
       </div>
       <form id="edit-order-form">
         <div class="modal-body">
@@ -286,6 +329,24 @@
           <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ── CUSTOMER HISTORY MODAL ─────────────────────── -->
+  <div class="modal" id="customer-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="customer-modal"></div>
+    <div class="modal-panel large">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">Customer</span>
+          <h2 id="customer-modal-title">History</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="customer-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="customer-modal-stats" class="batch-metrics" style="margin-bottom:16px"></div>
+        <div id="customer-modal-orders" class="list-stack"></div>
+      </div>
     </div>
   </div>
 
