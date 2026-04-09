@@ -55,7 +55,26 @@
 
         <div id="checkout-groups"></div>
       </form>
-      <p class="hint">Batch ID and checkout ID are generated automatically in the background. Profit formula used: total price - discounted price + refund.</p>
+      <p class="hint">Batch ID and checkout ID are generated automatically in the background. New checkouts default to Processing. Profit formula used: total price - discounted price + refund.</p>
+    </section>
+
+    <section class="card" id="edit-checkout-card" hidden>
+      <h2>Edit Checkout</h2>
+      <form id="edit-order-form" class="grid-4">
+        <input name="customerDisplay" id="edit-customer-display" readonly />
+        <input name="tracking" id="edit-tracking" placeholder="Tracking / J&T" />
+        <select name="deliveryStatus" id="edit-delivery-status">
+          <option>Processing</option>
+          <option>Shipped</option>
+          <option>Delivered</option>
+          <option>Cancelled</option>
+        </select>
+        <div class="button-row">
+          <button type="submit">Save changes</button>
+          <button type="button" id="cancel-edit-btn">Cancel</button>
+        </div>
+      </form>
+      <p class="hint">Use this after SHEIN updates the shipment so you can add the tracking number and change the checkout status.</p>
     </section>
 
     <section class="card actions">
@@ -105,8 +124,7 @@
               <th>Refund</th>
               <th>Profit</th>
               <th>Status</th>
-              <th>Delivered</th>
-              <th></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="orders-tbody"></tbody>
