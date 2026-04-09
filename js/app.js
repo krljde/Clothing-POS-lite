@@ -509,7 +509,7 @@ function syncCheckoutGroups() {
         <div class="checkout-card-head">
           <span class="checkout-num">Checkout ${i + 1}</span>
         </div>
-        <div class="form-row">
+        <div class="form-row checkout-card-row">
           <div class="form-group">
             <label class="form-label">Account *</label>
             <select class="form-select group-account-select" name="accountId[]" data-index="${i}" required>
@@ -523,12 +523,12 @@ function syncCheckoutGroups() {
             <span class="voucher-warn" id="vwarn-${i}">⚠ Voucher already used on another order</span>
           </div>
           <div class="form-group">
-            <label class="form-label">Item Count *</label>
-            <input class="form-input" name="itemCount[]" type="number" min="1" step="1" placeholder="1" value="${escapeAttr(old.itemCount || '1')}" required />
-          </div>
-          <div class="form-group">
             <label class="form-label">Tracking Number</label>
             <input class="form-input" name="tracking[]" placeholder="Tracking #" value="${escapeAttr(old.tracking || '')}" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Item Count *</label>
+            <input class="form-input" name="itemCount[]" type="number" min="1" step="1" placeholder="1" value="${escapeAttr(old.itemCount || '1')}" required />
           </div>
           <div class="form-group">
             <label class="form-label">Total Price (₱) *</label>
@@ -538,7 +538,7 @@ function syncCheckoutGroups() {
             <label class="form-label">Discounted Price (₱) *</label>
             <input class="form-input" name="discountedPrice[]" type="number" step="0.01" min="0" placeholder="0.00" value="${escapeAttr(old.discountedPrice || '')}" required />
           </div>
-          <div class="form-group" style="grid-column:span 2">
+          <div class="form-group">
             <label class="form-label">Refund (₱)</label>
             <input class="form-input" name="refund[]" type="number" step="0.01" min="0" placeholder="0.00" value="${escapeAttr(old.refund || '')}" />
           </div>
