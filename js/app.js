@@ -1,4 +1,14 @@
-const STORAGE_KEY = 'shein_pos_lite_v7';
+const STORAGE_KEY = 'shein_pos_lite_v8';
+const LEGACY_KEYS = [
+  'shein_pos_lite_v7',
+  'shein_pos_lite_v6',
+  'shein_pos_lite_v5',
+  'shein_pos_lite_v4',
+  'shein_pos_lite_v3',
+  'shein_pos_lite_v2',
+  'shein_pos_lite_v1'
+];
+const STATUS_OPTIONS = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
 
 const state = loadState();
 let editingOrderId = null;
@@ -12,58 +22,61 @@ const accountsTbody = document.getElementById('accounts-tbody');
 const ordersTbody = document.getElementById('orders-tbody');
 const editModal = document.getElementById('edit-modal');
 const editOrderForm = document.getElementById('edit-order-form');
-const editCustomerName = document.getElementById('edit-customer-name');
-const editCustomerTag = document.getElementById('edit-customer-tag');
-const editItemCount = document.getElementById('edit-item-count');
 const editAccountId = document.getElementById('edit-account-id');
 const editVoucherUsed = document.getElementById('edit-voucher-used');
-const editTracking = document.getElementById('edit-tracking');
-const editTotalPrice = document.getElementById('edit-total-price');
-const editDiscountedPrice = document.getElementById('edit-discounted-price');
-const editRefund = document.getElementById('edit-refund');
-const editDeliveryStatus = document.getElementById('edit-delivery-status');
-const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const closeModalBtn = document.getElementById('close-modal-btn');
 
-accountForm.addEventListener('submit', onAddAccount);
-orderForm.addEventListener('submit', onAddOrderBatch);
-editOrderForm.addEventListener('submit', onSaveOrderEdit);
-checkoutCountSelect.addEventListener('change', syncCheckoutGroups);
-cancelEditBtn.addEventListener('click', closeEditModal);
-closeModalBtn.addEventListener('click', closeEditModal);
-document.getElementById('export-btn').addEventListener('click', exportBackup);
-document.getElementById('import-file').addEventListener('change', importBackup);
-document.getElementById('reset-btn').addEventListener('click', resetData);
-
-document.addEventListener('click', (e) => {
-  const deleteAccountId = e.target.getAttribute('data-delete-account');
-  const deleteOrderId = e.target.getAttribute('data-delete-order');
-  const editOrderId = e.target.getAttribute('data-edit-order');
-  const closeModal = e.target.getAttribute('data-close-modal');
-  if (deleteAccountId) deleteAccount(deleteAccountId);
-  if (deleteOrderId) deleteOrder(deleteOrderId);
-  if (editOrderId) openEditModal(editOrderId);
-  if (closeModal) closeEditModal();
-});
-
-document.addEventListener('change', (e) => {
-  const orderId = e.target.getAttribute('data-status-order');
-  if (orderId) updateOrderStatus(orderId, e.target.value);
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !editModal.hidden) closeEditModal();
-});
-
 migrateLegacyData();
+bindEvents();
 syncCheckoutGroups();
 render();
+
+function bindEvents() {
+  accountForm.addEventListener('submit', onAddAccount);
+  orderForm.addEventListener('submit', onAddOrderBatch);
+  editOrderForm.addEventListener('submit', onSaveOrderEdit);
+  checkoutCountSelect.addEventListener('change', syncCheckoutGroups);
+  closeModalBtn.addEventListener('click', closeEditModal);
+  document.getElementById('export-btn').addEventListener('click', exportBackup);
+  document.getElementById('import-file').addEventListener('change', importBackup);
+  document.getElementById('reset-btn').addEventListener('click', resetData);
+
+  document.addEventListener('click', (e) => {
+    const deleteAccountId = e.target.getAttribute('data-delete-account');
+    const deleteOrderId = e.target.getAttribute('data-delete-order');
+    const editOrderId = e.target.getAttribute('data-edit-order');
+    const closeModal = e.target.hasAttribute('data-close-modal');
+
+    if (deleteAccountId) deleteAccount(deleteAccountId);
+    if (deleteOrderId) deleteOrder(deleteOrderId);
+    if (editOrderId) openEditModal(editOrderId);
+    if (closeModal) closeEditModal();
+  });
+
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('.group-account-select')) {
+      refreshGroupVoucherOptions();
+    }
+    if (e.target.matches('.group-voucher-select')) {
+      refreshGroupVoucherOptions();
+    }
+    if (e.target.matches('.inline-status')) {
+      onInlineStatusChange(e.target);
+    }
+  });
+
+  editAccountId.addEventListener('change', refreshEditVoucherOptions);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeEditModal();
+  });
+}
 
 function loadState() {
   const empty = { accounts: [], orders: [] };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : empty;
+    if (!raw) return empty;
+    return normalizeState(JSON.parse(raw));
   } catch {
     return empty;
   }
@@ -72,16 +85,15 @@ function loadState() {
 function migrateLegacyData() {
   if (state.accounts.length || state.orders.length) return;
 
-  const legacyKeys = ['shein_pos_lite_v6', 'shein_pos_lite_v5', 'shein_pos_lite_v4', 'shein_pos_lite_v3', 'shein_pos_lite_v2', 'shein_pos_lite_v1'];
-  for (const key of legacyKeys) {
+  for (const key of LEGACY_KEYS) {
     try {
-      const legacyRaw = localStorage.getItem(key);
-      if (!legacyRaw) continue;
-      const legacy = JSON.parse(legacyRaw);
-      if (!legacy || !Array.isArray(legacy.accounts) || !Array.isArray(legacy.orders)) continue;
-
-      state.accounts = legacy.accounts.map((account) => normalizeAccount(account));
-      state.orders = legacy.orders.map((order, index) => normalizeOrder(order, index));
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeState(parsed);
+      if (!normalized.accounts.length && !normalized.orders.length) continue;
+      state.accounts = normalized.accounts;
+      state.orders = normalized.orders;
       saveState();
       return;
     } catch {
@@ -90,29 +102,36 @@ function migrateLegacyData() {
   }
 }
 
+function normalizeState(parsed) {
+  const accounts = Array.isArray(parsed?.accounts) ? parsed.accounts.map(normalizeAccount).filter(Boolean) : [];
+  const orders = Array.isArray(parsed?.orders) ? parsed.orders.map((order, index) => normalizeOrder(order, index)).filter(Boolean) : [];
+  return { accounts, orders };
+}
+
 function normalizeAccount(account) {
+  if (!account) return null;
   return {
-    id: account.id || uid('acct'),
+    id: String(account.id || uid('acct')),
     email: String(account.email || '').trim(),
     password: String(account.password || '').trim(),
     cost: clampNumber(account.cost, 190, 0),
     purchasedAt: account.purchasedAt || new Date().toISOString(),
     expiryHours: clampNumber(account.expiryHours, 20, 1, 24),
-    availableVouchers: Array.isArray(account.availableVouchers)
-      ? normalizeVoucherList(account.availableVouchers)
-      : parseVoucherInput(account.availableVouchers || account.vouchers || ''),
+    vouchers: normalizeVoucherList(account.vouchers || account.availableVouchers || account.voucherList || ''),
   };
 }
 
 function normalizeOrder(order, index = 0) {
+  if (!order) return null;
   const customerName = String(order.customerName || '').trim();
-  const normalized = normalizeCustomerKey(customerName);
-  const batchId = order.batchId || `${normalized || 'CUSTOMER'}-${String(index + 1).padStart(3, '0')}`;
-  const checkoutId = order.checkoutId || `${batchId}-${String((index % 99) + 1).padStart(2, '0')}`;
+  const customerTag = String(order.customerTag || '').trim();
+  const baseBatchId = String(order.batchId || '').trim();
+  const batchId = baseBatchId || `${normalizeCustomerKey(customerName || 'CUSTOMER')}-${String(index + 1).padStart(3, '0')}`;
+  const checkoutId = String(order.checkoutId || '').trim() || `${batchId}-${String((index % 99) + 1).padStart(2, '0')}`;
   return {
-    id: order.id || uid('ord'),
+    id: String(order.id || uid('ord')),
     customerName,
-    customerTag: String(order.customerTag || '').trim(),
+    customerTag,
     batchId,
     checkoutId,
     itemCount: clampNumber(order.itemCount, 1, 1),
@@ -127,39 +146,6 @@ function normalizeOrder(order, index = 0) {
   };
 }
 
-function normalizeVoucherList(values) {
-  return [...new Set(values.map((value) => normalizeVoucherToken(value)).filter(Boolean))];
-}
-
-function parseVoucherInput(value) {
-  return normalizeVoucherList(
-    String(value || '')
-      .split(/[,+/|\n]+/)
-      .map((part) => part.trim())
-  );
-}
-
-function parseUsedVoucherInput(value) {
-  return normalizeVoucherList(
-    String(value || '')
-      .split(/[+,&/|\n]+/)
-      .map((part) => part.trim())
-  );
-}
-
-function normalizeVoucherToken(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toUpperCase();
-}
-
-function normalizeStatus(value) {
-  const allowed = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
-  const status = String(value || '').trim();
-  return allowed.includes(status) ? status : 'Processing';
-}
-
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
@@ -171,16 +157,17 @@ function uid(prefix) {
 function onAddAccount(e) {
   e.preventDefault();
   const form = new FormData(accountForm);
-  const expiryHours = clampNumber(form.get('expiryHours'), 20, 1, 24);
+  const vouchers = normalizeVoucherList(form.get('vouchers'));
   const account = {
     id: uid('acct'),
     email: String(form.get('email') || '').trim(),
     password: String(form.get('password') || '').trim(),
     cost: clampNumber(form.get('cost'), 190, 0),
     purchasedAt: new Date().toISOString(),
-    expiryHours,
-    availableVouchers: parseVoucherInput(form.get('availableVouchers')),
+    expiryHours: clampNumber(form.get('expiryHours'), 20, 1, 24),
+    vouchers,
   };
+
   state.accounts.push(account);
   saveState();
   accountForm.reset();
@@ -195,44 +182,44 @@ function onAddOrderBatch(e) {
   const customerName = String(form.get('customerName') || '').trim();
   const customerTag = String(form.get('customerTag') || '').trim();
   const checkoutCount = clampNumber(form.get('checkoutCount'), 1, 1, 6);
-
-  if (!customerName) {
-    alert('Customer name is required.');
-    return;
-  }
+  if (!customerName) return;
 
   const batchId = generateBatchId(customerName, customerTag);
-  const newOrders = [];
+  const ordersToAdd = [];
 
   for (let i = 1; i <= checkoutCount; i += 1) {
-    const suffix = String(i);
-    const accountId = String(form.get(`accountId_${suffix}`) || '').trim();
-    if (!accountId) {
-      alert(`Please select an account for checkout ${i}.`);
+    const accountId = String(form.get(`accountId_${i}`) || '').trim();
+    const voucherUsed = String(form.get(`voucherUsed_${i}`) || '').trim();
+    if (!accountId || !voucherUsed) {
+      alert(`Checkout ${i} still needs an account and voucher.`);
       return;
     }
 
-    const order = {
+    const remaining = getRemainingVouchers(accountId, { pendingSelections: ordersToAdd.map(o => ({ accountId: o.accountId, voucherUsed: o.voucherUsed })) });
+    if (!remaining.some(v => voucherKey(v) === voucherKey(voucherUsed))) {
+      alert(`Voucher for checkout ${i} is no longer available on that account.`);
+      return;
+    }
+
+    ordersToAdd.push({
       id: uid('ord'),
       customerName,
       customerTag,
       batchId,
       checkoutId: `${batchId}-${String(i).padStart(2, '0')}`,
-      itemCount: clampNumber(form.get(`itemCount_${suffix}`), 1, 1),
+      itemCount: clampNumber(form.get(`itemCount_${i}`), 1, 1),
       accountId,
-      voucherUsed: String(form.get(`voucherUsed_${suffix}`) || '').trim(),
-      tracking: String(form.get(`tracking_${suffix}`) || '').trim(),
-      totalPrice: clampNumber(form.get(`totalPrice_${suffix}`), 0, 0),
-      discountedPrice: clampNumber(form.get(`discountedPrice_${suffix}`), 0, 0),
-      refund: clampNumber(form.get(`refund_${suffix}`), 0, 0),
+      voucherUsed,
+      tracking: '',
+      totalPrice: clampNumber(form.get(`totalPrice_${i}`), 0, 0),
+      discountedPrice: clampNumber(form.get(`discountedPrice_${i}`), 0, 0),
+      refund: clampNumber(form.get(`refund_${i}`), 0, 0),
       deliveryStatus: 'Processing',
       createdAt: new Date().toISOString(),
-    };
-
-    newOrders.push(order);
+    });
   }
 
-  state.orders.push(...newOrders);
+  state.orders.push(...ordersToAdd);
   saveState();
   orderForm.reset();
   checkoutCountSelect.value = '1';
@@ -243,168 +230,253 @@ function onAddOrderBatch(e) {
 function onSaveOrderEdit(e) {
   e.preventDefault();
   if (!editingOrderId) return;
+  const order = state.orders.find(o => o.id === editingOrderId);
+  if (!order) return;
 
-  const order = state.orders.find((item) => item.id === editingOrderId);
-  if (!order) {
-    closeEditModal();
+  const form = new FormData(editOrderForm);
+  const newCustomerName = String(form.get('customerName') || '').trim();
+  const newCustomerTag = String(form.get('customerTag') || '').trim();
+  const newAccountId = String(form.get('accountId') || '').trim();
+  const newVoucherUsed = String(form.get('voucherUsed') || '').trim();
+
+  if (!newCustomerName || !newAccountId || !newVoucherUsed) {
+    alert('Please complete the required fields.');
     return;
   }
 
-  const newCustomerName = String(editCustomerName.value || '').trim();
-  const newCustomerTag = String(editCustomerTag.value || '').trim();
-  if (!newCustomerName) {
-    alert('Customer name is required.');
+  const allowedVouchers = getRemainingVouchers(newAccountId, { excludeOrderId: order.id });
+  if (!allowedVouchers.some(v => voucherKey(v) === voucherKey(newVoucherUsed))) {
+    alert('That voucher is not available for the selected account.');
     return;
   }
 
   const oldBatchId = order.batchId;
-  const batchOrders = state.orders.filter((item) => item.batchId === oldBatchId);
+  const batchOrders = state.orders
+    .filter(o => o.batchId === oldBatchId)
+    .sort((a, b) => a.checkoutId.localeCompare(b.checkoutId));
 
-  order.itemCount = clampNumber(editItemCount.value, 1, 1);
-  order.accountId = String(editAccountId.value || '').trim();
-  order.voucherUsed = String(editVoucherUsed.value || '').trim();
-  order.tracking = String(editTracking.value || '').trim();
-  order.totalPrice = clampNumber(editTotalPrice.value, 0, 0);
-  order.discountedPrice = clampNumber(editDiscountedPrice.value, 0, 0);
-  order.refund = clampNumber(editRefund.value, 0, 0);
-  order.deliveryStatus = normalizeStatus(editDeliveryStatus.value);
-
-  const nameChanged = order.customerName !== newCustomerName || order.customerTag !== newCustomerTag;
-
-  if (nameChanged) {
-    renameBatch(oldBatchId, newCustomerName, newCustomerTag);
-  } else {
-    order.customerName = newCustomerName;
-    order.customerTag = newCustomerTag;
-    if (batchOrders.length === 1) {
-      order.batchId = oldBatchId;
-    }
+  if (order.customerName !== newCustomerName || order.customerTag !== newCustomerTag) {
+    const nextBatchId = generateBatchId(newCustomerName, newCustomerTag, oldBatchId);
+    batchOrders.forEach((batchOrder, index) => {
+      batchOrder.customerName = newCustomerName;
+      batchOrder.customerTag = newCustomerTag;
+      batchOrder.batchId = nextBatchId;
+      batchOrder.checkoutId = `${nextBatchId}-${String(index + 1).padStart(2, '0')}`;
+    });
   }
+
+  order.itemCount = clampNumber(form.get('itemCount'), 1, 1);
+  order.accountId = newAccountId;
+  order.voucherUsed = newVoucherUsed;
+  order.tracking = String(form.get('tracking') || '').trim();
+  order.totalPrice = clampNumber(form.get('totalPrice'), 0, 0);
+  order.discountedPrice = clampNumber(form.get('discountedPrice'), 0, 0);
+  order.refund = clampNumber(form.get('refund'), 0, 0);
+  order.deliveryStatus = normalizeStatus(form.get('deliveryStatus'));
 
   saveState();
   closeEditModal();
   render();
 }
 
-function renameBatch(oldBatchId, customerName, customerTag) {
-  const batchOrders = state.orders
-    .filter((item) => item.batchId === oldBatchId)
-    .sort((a, b) => a.checkoutId.localeCompare(b.checkoutId));
+function onInlineStatusChange(select) {
+  const orderId = select.getAttribute('data-order-id');
+  const order = state.orders.find(o => o.id === orderId);
+  if (!order) return;
+  order.deliveryStatus = normalizeStatus(select.value);
+  saveState();
+  renderOrders();
+}
 
-  if (!batchOrders.length) return;
-
-  const suffixMatch = String(oldBatchId).match(/-(\d+)$/);
-  const preservedNumber = suffixMatch ? suffixMatch[1] : '001';
-  const base = normalizeBatchBase(customerName, customerTag);
-  let candidateBatchId = `${base}-${preservedNumber}`;
-
-  const conflicting = state.orders.some((item) => item.batchId === candidateBatchId && item.batchId !== oldBatchId);
-  if (conflicting) {
-    candidateBatchId = generateBatchId(customerName, customerTag);
+function deleteAccount(accountId) {
+  if (state.orders.some(order => order.accountId === accountId)) {
+    alert('This account already has checkouts. Delete or move those checkouts first.');
+    return;
   }
-
-  batchOrders.forEach((item, index) => {
-    item.customerName = customerName;
-    item.customerTag = customerTag;
-    item.batchId = candidateBatchId;
-    item.checkoutId = `${candidateBatchId}-${String(index + 1).padStart(2, '0')}`;
-  });
-}
-
-function openEditModal(orderId) {
-  const order = state.orders.find((item) => item.id === orderId);
-  if (!order) return;
-
-  editingOrderId = order.id;
-  editCustomerName.value = order.customerName || '';
-  editCustomerTag.value = order.customerTag || '';
-  editItemCount.value = order.itemCount || 1;
-  editVoucherUsed.value = order.voucherUsed || '';
-  editTracking.value = order.tracking || '';
-  editTotalPrice.value = order.totalPrice ?? '';
-  editDiscountedPrice.value = order.discountedPrice ?? '';
-  editRefund.value = order.refund ?? 0;
-  editDeliveryStatus.value = normalizeStatus(order.deliveryStatus);
-  renderEditAccountOptions(order.accountId || '');
-  editModal.hidden = false;
-  document.body.classList.add('modal-open');
-  editCustomerName.focus();
-}
-
-function closeEditModal() {
-  editingOrderId = null;
-  editOrderForm.reset();
-  editDeliveryStatus.value = 'Processing';
-  editModal.hidden = true;
-  document.body.classList.remove('modal-open');
-}
-
-function renderEditAccountOptions(selectedId = '') {
-  const options = ['<option value="">Select account</option>']
-    .concat(
-      state.accounts.map((account) => {
-        const status = getAccountStatus(account);
-        const availableLabel = getRemainingVoucherLabels(account).join(', ');
-        const label = availableLabel ? `${status} • ${availableLabel}` : status;
-        return `<option value="${escapeAttr(account.id)}">${escapeHtml(account.email)} — ${escapeHtml(label)}</option>`;
-      })
-    )
-    .join('');
-
-  editAccountId.innerHTML = options;
-  editAccountId.value = selectedId;
-}
-
-function updateOrderStatus(orderId, status) {
-  const order = state.orders.find((item) => item.id === orderId);
-  if (!order) return;
-  order.deliveryStatus = normalizeStatus(status);
+  if (!confirm('Delete this account?')) return;
+  state.accounts = state.accounts.filter(account => account.id !== accountId);
   saveState();
   render();
 }
 
-function generateBatchId(customerName, customerTag = '') {
-  const base = normalizeBatchBase(customerName, customerTag);
-  const usedNumbers = state.orders
-    .map((order) => String(order.batchId || ''))
-    .filter((id) => id.startsWith(`${base}-`))
-    .map((id) => Number(id.split('-').pop()))
-    .filter((num) => Number.isFinite(num));
-
-  const nextNumber = usedNumbers.length ? Math.max(...usedNumbers) + 1 : 1;
-  return `${base}-${String(nextNumber).padStart(3, '0')}`;
+function deleteOrder(orderId) {
+  if (!confirm('Delete this checkout?')) return;
+  state.orders = state.orders.filter(order => order.id !== orderId);
+  if (editingOrderId === orderId) closeEditModal();
+  saveState();
+  render();
 }
 
-function normalizeBatchBase(customerName, customerTag = '') {
-  return normalizeCustomerKey(customerTag ? `${customerName}-${customerTag}` : customerName) || 'CUSTOMER';
+function getAccountById(accountId) {
+  return state.accounts.find(account => account.id === accountId) || null;
 }
 
-function normalizeCustomerKey(name) {
-  return String(name || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32);
+function getExpiresAt(account) {
+  return new Date(new Date(account.purchasedAt).getTime() + account.expiryHours * 60 * 60 * 1000);
+}
+
+function getHoursLeft(account) {
+  return (getExpiresAt(account).getTime() - Date.now()) / (60 * 60 * 1000);
+}
+
+function getUsedVoucherKeys(accountId, excludeOrderId = null) {
+  return new Set(
+    state.orders
+      .filter(order => order.accountId === accountId && order.id !== excludeOrderId)
+      .map(order => voucherKey(order.voucherUsed))
+      .filter(Boolean)
+  );
+}
+
+function getRemainingVouchers(accountId, options = {}) {
+  const { excludeOrderId = null, pendingSelections = [] } = options;
+  const account = getAccountById(accountId);
+  if (!account) return [];
+
+  const used = getUsedVoucherKeys(accountId, excludeOrderId);
+  pendingSelections
+    .filter(item => item.accountId === accountId)
+    .forEach(item => {
+      const key = voucherKey(item.voucherUsed);
+      if (key) used.add(key);
+    });
+
+  return account.vouchers.filter(voucher => !used.has(voucherKey(voucher)));
+}
+
+function getUsedVoucherCount(accountId) {
+  const account = getAccountById(accountId);
+  if (!account) return 0;
+  return account.vouchers.length - getRemainingVouchers(accountId).length;
+}
+
+function getAccountStatus(account) {
+  if (getHoursLeft(account) <= 0) return 'Expired';
+  return getRemainingVouchers(account.id).length > 0 ? 'Available' : 'Used';
+}
+
+function getOrderProfit(order) {
+  return order.totalPrice - order.discountedPrice + order.refund;
+}
+
+function render() {
+  renderCustomers();
+  renderAccounts();
+  renderOrders();
+  renderSummary();
+  renderAccountOptionsInGroups();
+  refreshGroupVoucherOptions();
+}
+
+function renderCustomers() {
+  const names = [...new Set(state.orders.map(order => order.customerName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  customerList.innerHTML = names.map(name => `<option value="${escapeAttr(name)}"></option>`).join('');
+}
+
+function renderSummary() {
+  const totalProfit = state.orders.reduce((sum, order) => sum + getOrderProfit(order), 0);
+  const available = state.accounts.filter(account => getAccountStatus(account) === 'Available').length;
+  const expired = state.accounts.filter(account => getAccountStatus(account) === 'Expired').length;
+
+  document.getElementById('stat-orders').textContent = String(state.orders.length);
+  document.getElementById('stat-profit').textContent = formatPeso(totalProfit);
+  document.getElementById('stat-active').textContent = String(available);
+  document.getElementById('stat-expired').textContent = String(expired);
+}
+
+function renderAccounts() {
+  if (!state.accounts.length) {
+    accountsTbody.innerHTML = '<tr><td colspan="10">No accounts yet.</td></tr>';
+    return;
+  }
+
+  const sorted = [...state.accounts].sort((a, b) => new Date(b.purchasedAt) - new Date(a.purchasedAt));
+  accountsTbody.innerHTML = sorted.map(account => {
+    const status = getAccountStatus(account);
+    const badgeClass = status.toLowerCase();
+    const remaining = getRemainingVouchers(account.id);
+    const usedCount = getUsedVoucherCount(account.id);
+    const tooltip = status === 'Available'
+      ? (remaining.length ? `Available: ${remaining.join(', ')}` : 'No vouchers left')
+      : status === 'Used'
+        ? 'All vouchers already used'
+        : 'Account already expired';
+
+    return `
+      <tr>
+        <td class="mono">${escapeHtml(account.email)}</td>
+        <td>${escapeHtml(account.password || '-')}</td>
+        <td>${formatPeso(account.cost)}</td>
+        <td>${formatDate(account.purchasedAt)}</td>
+        <td>${formatDate(getExpiresAt(account))}</td>
+        <td>${getHoursLeft(account) > 0 ? `${getHoursLeft(account).toFixed(1)} hrs` : '0 hrs'}</td>
+        <td>${usedCount} / ${account.vouchers.length || 0}</td>
+        <td>${remaining.length ? escapeHtml(remaining.join(', ')) : '-'}</td>
+        <td>
+          <span class="badge ${badgeClass} has-tooltip" title="${escapeAttr(tooltip)}" data-tooltip="${escapeAttr(tooltip)}">${status}</span>
+        </td>
+        <td><button class="small-btn" data-delete-account="${escapeAttr(account.id)}">Delete</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderOrders() {
+  if (!state.orders.length) {
+    ordersTbody.innerHTML = '<tr><td colspan="11">No checkouts yet.</td></tr>';
+    return;
+  }
+
+  const sorted = [...state.orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  ordersTbody.innerHTML = sorted.map(order => {
+    const account = getAccountById(order.accountId);
+    const customerLabel = order.customerTag ? `${order.customerName} · ${order.customerTag}` : order.customerName;
+    const title = `Batch: ${order.batchId}\nCheckout: ${order.checkoutId}`;
+    return `
+      <tr title="${escapeAttr(title)}">
+        <td>${escapeHtml(customerLabel)}</td>
+        <td>${escapeHtml(order.itemCount)}</td>
+        <td class="mono">${escapeHtml(account?.email || 'Deleted account')}</td>
+        <td>${escapeHtml(order.voucherUsed || '-')}</td>
+        <td class="mono">${escapeHtml(order.tracking || '-')}</td>
+        <td>${formatPeso(order.totalPrice)}</td>
+        <td>${formatPeso(order.discountedPrice)}</td>
+        <td>${formatPeso(order.refund)}</td>
+        <td>${formatPeso(getOrderProfit(order))}</td>
+        <td>
+          <select class="inline-status" data-order-id="${escapeAttr(order.id)}">
+            ${STATUS_OPTIONS.map(status => `<option value="${escapeAttr(status)}" ${status === order.deliveryStatus ? 'selected' : ''}>${status}</option>`).join('')}
+          </select>
+        </td>
+        <td>
+          <div class="button-row compact-actions">
+            <button class="small-btn" data-edit-order="${escapeAttr(order.id)}" type="button">Edit</button>
+            <button class="small-btn danger-soft" data-delete-order="${escapeAttr(order.id)}" type="button">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function syncCheckoutGroups() {
   const count = clampNumber(checkoutCountSelect.value, 1, 1, 6);
-  const currentValues = captureCheckoutGroupValues();
+  const previous = captureCheckoutGroupValues();
 
   checkoutGroups.innerHTML = Array.from({ length: count }, (_, index) => {
     const n = index + 1;
-    const values = currentValues[n] || {};
+    const values = previous[n] || {};
     return `
-      <div class="card checkout-card">
+      <div class="card checkout-card" data-group="${n}">
         <h3>Checkout ${n}</h3>
         <div class="grid-4">
           <input name="itemCount_${n}" type="number" step="1" min="1" value="${escapeAttr(values.itemCount || '1')}" placeholder="Item count" />
-          <select name="accountId_${n}" class="order-account-select" data-selected="${escapeAttr(values.accountId || '')}" required>
+          <select name="accountId_${n}" class="group-account-select" data-group="${n}" data-selected="${escapeAttr(values.accountId || '')}" required>
             <option value="">Select account</option>
           </select>
-          <input name="voucherUsed_${n}" value="${escapeAttr(values.voucherUsed || '')}" placeholder="Voucher used (ex. 83%, 79% + FS)" />
-          <input name="tracking_${n}" value="${escapeAttr(values.tracking || '')}" placeholder="Tracking / J&T (optional for now)" />
+          <select name="voucherUsed_${n}" class="group-voucher-select" data-group="${n}" data-selected="${escapeAttr(values.voucherUsed || '')}" required>
+            <option value="">Select voucher</option>
+          </select>
           <input name="totalPrice_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.totalPrice || '')}" placeholder="Total price paid by customer" required />
           <input name="discountedPrice_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.discountedPrice || '')}" placeholder="Discounted checkout price" required />
           <input name="refund_${n}" type="number" step="0.01" min="0" value="${escapeAttr(values.refund || '0')}" placeholder="Refund" />
@@ -414,17 +486,17 @@ function syncCheckoutGroups() {
   }).join('');
 
   renderAccountOptionsInGroups();
+  refreshGroupVoucherOptions();
 }
 
 function captureCheckoutGroupValues() {
   const values = {};
-  checkoutGroups.querySelectorAll('.card').forEach((card, index) => {
+  checkoutGroups.querySelectorAll('.checkout-card').forEach((card, index) => {
     const n = index + 1;
     values[n] = {
       itemCount: card.querySelector(`[name="itemCount_${n}"]`)?.value || '1',
       accountId: card.querySelector(`[name="accountId_${n}"]`)?.value || '',
       voucherUsed: card.querySelector(`[name="voucherUsed_${n}"]`)?.value || '',
-      tracking: card.querySelector(`[name="tracking_${n}"]`)?.value || '',
       totalPrice: card.querySelector(`[name="totalPrice_${n}"]`)?.value || '',
       discountedPrice: card.querySelector(`[name="discountedPrice_${n}"]`)?.value || '',
       refund: card.querySelector(`[name="refund_${n}"]`)?.value || '0',
@@ -434,194 +506,126 @@ function captureCheckoutGroupValues() {
 }
 
 function renderAccountOptionsInGroups() {
-  const selects = checkoutGroups.querySelectorAll('.order-account-select');
-  const options = ['<option value="">Select account</option>']
-    .concat(
-      state.accounts.map((account) => {
-        const status = getAccountStatus(account);
-        const availableLabel = getRemainingVoucherLabels(account).join(', ');
-        const label = availableLabel ? `${status} • ${availableLabel}` : status;
-        return `<option value="${escapeAttr(account.id)}">${escapeHtml(account.email)} — ${escapeHtml(label)}</option>`;
-      })
-    )
-    .join('');
-
-  selects.forEach((select) => {
+  const selects = checkoutGroups.querySelectorAll('.group-account-select');
+  selects.forEach(select => {
     const current = select.getAttribute('data-selected') || select.value;
+    const options = ['<option value="">Select account</option>']
+      .concat(state.accounts.map(account => {
+        const remaining = getRemainingVouchers(account.id).length;
+        const status = getAccountStatus(account);
+        const disabled = status !== 'Available';
+        return `<option value="${escapeAttr(account.id)}" ${disabled ? 'disabled' : ''}>${escapeHtml(account.email)} — ${remaining} voucher${remaining === 1 ? '' : 's'} left</option>`;
+      }))
+      .join('');
     select.innerHTML = options;
     select.value = current;
   });
 }
 
-function deleteAccount(accountId) {
-  const used = state.orders.some((o) => o.accountId === accountId);
-  if (used) {
-    alert('This account already has checkouts. Delete the related checkouts first.');
-    return;
-  }
-  if (!confirm('Delete this account?')) return;
-  state.accounts = state.accounts.filter((a) => a.id !== accountId);
-  saveState();
-  render();
+function refreshGroupVoucherOptions() {
+  const groups = [...checkoutGroups.querySelectorAll('.checkout-card')].map(card => {
+    const group = card.getAttribute('data-group');
+    return {
+      group,
+      accountId: card.querySelector(`[name="accountId_${group}"]`)?.value || '',
+      voucherUsed: card.querySelector(`[name="voucherUsed_${group}"]`)?.value || ''
+    };
+  });
+
+  checkoutGroups.querySelectorAll('.checkout-card').forEach(card => {
+    const group = card.getAttribute('data-group');
+    const accountSelect = card.querySelector(`[name="accountId_${group}"]`);
+    const voucherSelect = card.querySelector(`[name="voucherUsed_${group}"]`);
+    const accountId = accountSelect?.value || '';
+    const currentVoucher = voucherSelect?.getAttribute('data-selected') || voucherSelect?.value || '';
+
+    if (!accountId) {
+      voucherSelect.innerHTML = '<option value="">Select voucher</option>';
+      voucherSelect.value = '';
+      return;
+    }
+
+    const pendingSelections = groups
+      .filter(item => item.group !== group)
+      .map(item => ({ accountId: item.accountId, voucherUsed: item.voucherUsed }));
+
+    let remaining = getRemainingVouchers(accountId, { pendingSelections });
+    if (currentVoucher && !remaining.some(v => voucherKey(v) === voucherKey(currentVoucher))) {
+      const account = getAccountById(accountId);
+      if (account?.vouchers.some(v => voucherKey(v) === voucherKey(currentVoucher))) {
+        remaining = [currentVoucher, ...remaining];
+      }
+    }
+
+    voucherSelect.innerHTML = ['<option value="">Select voucher</option>']
+      .concat(remaining.map(voucher => `<option value="${escapeAttr(voucher)}">${escapeHtml(voucher)}</option>`))
+      .join('');
+    voucherSelect.value = currentVoucher;
+    if (voucherSelect.value !== currentVoucher) voucherSelect.value = '';
+    voucherSelect.setAttribute('data-selected', voucherSelect.value);
+  });
 }
 
-function deleteOrder(orderId) {
-  if (!confirm('Delete this checkout?')) return;
-  state.orders = state.orders.filter((o) => o.id !== orderId);
-  if (editingOrderId === orderId) closeEditModal();
-  saveState();
-  render();
-}
+function openEditModal(orderId) {
+  const order = state.orders.find(item => item.id === orderId);
+  if (!order) return;
+  editingOrderId = orderId;
 
-function getAccountUsageCount(accountId) {
-  return state.orders.filter((o) => o.accountId === accountId).length;
-}
+  editOrderForm.customerName.value = order.customerName;
+  editOrderForm.customerTag.value = order.customerTag || '';
+  editOrderForm.itemCount.value = String(order.itemCount || 1);
+  editOrderForm.tracking.value = order.tracking || '';
+  editOrderForm.totalPrice.value = String(order.totalPrice || '');
+  editOrderForm.discountedPrice.value = String(order.discountedPrice || '');
+  editOrderForm.refund.value = String(order.refund || 0);
+  editOrderForm.deliveryStatus.value = normalizeStatus(order.deliveryStatus);
 
-function getAccountById(accountId) {
-  return state.accounts.find((a) => a.id === accountId) || null;
-}
-
-function getExpiresAt(account) {
-  return new Date(new Date(account.purchasedAt).getTime() + account.expiryHours * 60 * 60 * 1000);
-}
-
-function getHoursLeft(account) {
-  const diff = getExpiresAt(account).getTime() - Date.now();
-  return diff / (60 * 60 * 1000);
-}
-
-function getUsedVoucherTokens(accountId) {
-  return new Set(
-    state.orders
-      .filter((order) => order.accountId === accountId)
-      .flatMap((order) => parseUsedVoucherInput(order.voucherUsed))
-  );
-}
-
-function getRemainingVoucherLabels(account) {
-  const available = normalizeVoucherList(account.availableVouchers || []);
-  if (!available.length) return [];
-  const used = getUsedVoucherTokens(account.id);
-  return available.filter((voucher) => !used.has(voucher));
-}
-
-function getAccountStatus(account) {
-  const expired = getHoursLeft(account) <= 0;
-  if (expired) return 'Expired';
-  const vouchers = normalizeVoucherList(account.availableVouchers || []);
-  if (!vouchers.length) return 'Available';
-  return getRemainingVoucherLabels(account).length ? 'Available' : 'Used';
-}
-
-function getOrderProfit(order) {
-  return order.totalPrice - order.discountedPrice + order.refund;
-}
-
-function render() {
-  renderAccounts();
-  renderOrders();
-  renderSummary();
-  renderCustomers();
-  renderAccountOptionsInGroups();
-  if (editingOrderId) {
-    const editingOrder = state.orders.find((item) => item.id === editingOrderId);
-    if (editingOrder) renderEditAccountOptions(editingOrder.accountId || '');
-  }
-}
-
-function renderCustomers() {
-  const names = [...new Set(state.orders.map((order) => order.customerName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  customerList.innerHTML = names.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('');
-}
-
-function renderAccounts() {
-  if (!state.accounts.length) {
-    accountsTbody.innerHTML = `<tr><td colspan="10">No accounts yet.</td></tr>`;
-    return;
-  }
-
-  const sorted = [...state.accounts].sort((a, b) => new Date(b.purchasedAt) - new Date(a.purchasedAt));
-  accountsTbody.innerHTML = sorted.map((account) => {
-    const usage = getAccountUsageCount(account.id);
-    const expiresAt = getExpiresAt(account);
-    const hoursLeft = getHoursLeft(account);
+  const accountOptions = state.accounts.map(account => {
     const status = getAccountStatus(account);
-    const badgeClass = status.toLowerCase();
-    const remaining = getRemainingVoucherLabels(account);
-    const allVouchers = normalizeVoucherList(account.availableVouchers || []);
-    const voucherCell = remaining.length
-      ? remaining.map(escapeHtml).join(', ')
-      : allVouchers.length
-        ? 'None left'
-        : '-';
-    const badgeTitle = status === 'Available' && remaining.length
-      ? `Available: ${remaining.join(', ')}`
-      : status === 'Used' && allVouchers.length
-        ? `All vouchers used: ${allVouchers.join(', ')}`
-        : '';
-
-    return `
-      <tr>
-        <td class="mono">${escapeHtml(account.email)}</td>
-        <td>${escapeHtml(account.password || '-')}</td>
-        <td>${formatPeso(account.cost)}</td>
-        <td>${formatDate(account.purchasedAt)}</td>
-        <td>${formatDate(expiresAt.toISOString())}</td>
-        <td>${hoursLeft > 0 ? `${hoursLeft.toFixed(1)} hrs` : '0 hrs'}</td>
-        <td>${usage}</td>
-        <td><span class="badge ${badgeClass}" title="${escapeAttr(badgeTitle)}">${status}</span></td>
-        <td>${voucherCell}</td>
-        <td><button class="small-btn" data-delete-account="${escapeAttr(account.id)}">Delete</button></td>
-      </tr>
-    `;
+    const disabled = status !== 'Available' && account.id !== order.accountId;
+    return `<option value="${escapeAttr(account.id)}" ${disabled ? 'disabled' : ''}>${escapeHtml(account.email)}</option>`;
   }).join('');
+  editAccountId.innerHTML = `<option value="">Select account</option>${accountOptions}`;
+  editAccountId.value = order.accountId;
+  editVoucherUsed.setAttribute('data-current-order-id', order.id);
+  editVoucherUsed.setAttribute('data-selected', order.voucherUsed);
+  refreshEditVoucherOptions();
+
+  editModal.hidden = false;
+  document.body.classList.add('modal-open');
 }
 
-function renderOrders() {
-  if (!state.orders.length) {
-    ordersTbody.innerHTML = `<tr><td colspan="11">No checkouts yet.</td></tr>`;
+function refreshEditVoucherOptions() {
+  const accountId = editAccountId.value;
+  const currentOrderId = editVoucherUsed.getAttribute('data-current-order-id');
+  const selected = editVoucherUsed.getAttribute('data-selected') || editVoucherUsed.value || '';
+
+  if (!accountId) {
+    editVoucherUsed.innerHTML = '<option value="">Select voucher</option>';
+    editVoucherUsed.value = '';
     return;
   }
 
-  const sorted = [...state.orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  ordersTbody.innerHTML = sorted.map((order) => {
-    const account = getAccountById(order.accountId);
-    const profit = getOrderProfit(order);
-    const customerLabel = order.customerTag ? `${order.customerName} (${order.customerTag})` : order.customerName;
-    return `
-      <tr title="Batch: ${escapeAttr(order.batchId)} | Checkout: ${escapeAttr(order.checkoutId)}">
-        <td>${escapeHtml(customerLabel)}</td>
-        <td>${escapeHtml(order.itemCount || 1)}</td>
-        <td class="mono">${escapeHtml(account?.email || 'Deleted account')}</td>
-        <td>${escapeHtml(order.voucherUsed || '-')}</td>
-        <td class="mono">${escapeHtml(order.tracking || '-')}</td>
-        <td>${formatPeso(order.totalPrice)}</td>
-        <td>${formatPeso(order.discountedPrice)}</td>
-        <td>${formatPeso(order.refund)}</td>
-        <td>${formatPeso(profit)}</td>
-        <td>
-          <select class="inline-status" data-status-order="${escapeAttr(order.id)}">
-            ${['Processing', 'Shipped', 'Delivered', 'Cancelled'].map((status) => `<option value="${status}" ${order.deliveryStatus === status ? 'selected' : ''}>${status}</option>`).join('')}
-          </select>
-        </td>
-        <td>
-          <button class="small-btn" data-edit-order="${escapeAttr(order.id)}">Edit</button>
-          <button class="small-btn" data-delete-order="${escapeAttr(order.id)}">Delete</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
+  let remaining = getRemainingVouchers(accountId, { excludeOrderId: currentOrderId });
+  if (selected && !remaining.some(v => voucherKey(v) === voucherKey(selected))) {
+    const account = getAccountById(accountId);
+    if (account?.vouchers.some(v => voucherKey(v) === voucherKey(selected))) {
+      remaining = [selected, ...remaining];
+    }
+  }
+
+  editVoucherUsed.innerHTML = ['<option value="">Select voucher</option>']
+    .concat(remaining.map(voucher => `<option value="${escapeAttr(voucher)}">${escapeHtml(voucher)}</option>`))
+    .join('');
+  editVoucherUsed.value = selected;
+  if (editVoucherUsed.value !== selected) editVoucherUsed.value = '';
 }
 
-function renderSummary() {
-  const totalProfit = state.orders.reduce((sum, order) => sum + getOrderProfit(order), 0);
-  const active = state.accounts.filter((a) => getAccountStatus(a) !== 'Expired').length;
-  const expired = state.accounts.filter((a) => getAccountStatus(a) === 'Expired').length;
-
-  document.getElementById('stat-orders').textContent = String(state.orders.length);
-  document.getElementById('stat-profit').textContent = formatPeso(totalProfit);
-  document.getElementById('stat-active').textContent = String(active);
-  document.getElementById('stat-expired').textContent = String(expired);
+function closeEditModal() {
+  editingOrderId = null;
+  editModal.hidden = true;
+  document.body.classList.remove('modal-open');
+  editOrderForm.reset();
 }
 
 function exportBackup() {
@@ -640,13 +644,10 @@ function importBackup(e) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const parsed = JSON.parse(reader.result);
-      if (!parsed.accounts || !parsed.orders) throw new Error('Invalid backup file');
-      state.accounts = parsed.accounts.map((account) => normalizeAccount(account));
-      state.orders = parsed.orders.map((order, index) => normalizeOrder(order, index));
+      const parsed = normalizeState(JSON.parse(reader.result));
+      state.accounts = parsed.accounts;
+      state.orders = parsed.orders;
       saveState();
-      closeEditModal();
-      syncCheckoutGroups();
       render();
       alert('Backup imported.');
     } catch {
@@ -667,6 +668,64 @@ function resetData() {
   render();
 }
 
+function generateBatchId(customerName, customerTag = '', oldBatchId = '') {
+  const prefixBase = [customerName, customerTag].filter(Boolean).join('-');
+  const prefix = normalizeCustomerKey(prefixBase || customerName || 'CUSTOMER');
+  const oldMatch = oldBatchId.match(/-(\d+)$/);
+  const preferredNumber = oldMatch ? Number(oldMatch[1]) : null;
+  const existing = new Set(
+    state.orders
+      .map(order => order.batchId)
+      .filter(Boolean)
+      .filter(batchId => batchId !== oldBatchId)
+  );
+
+  if (preferredNumber !== null) {
+    const candidate = `${prefix}-${String(preferredNumber).padStart(3, '0')}`;
+    if (!existing.has(candidate)) return candidate;
+  }
+
+  let n = 1;
+  while (existing.has(`${prefix}-${String(n).padStart(3, '0')}`)) n += 1;
+  return `${prefix}-${String(n).padStart(3, '0')}`;
+}
+
+function normalizeVoucherList(value) {
+  const input = Array.isArray(value) ? value.join(',') : String(value || '');
+  const seen = new Set();
+  return input
+    .split(/[,\n|]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .filter(item => {
+      const key = voucherKey(item);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function voucherKey(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+}
+
+function normalizeCustomerKey(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36) || 'CUSTOMER';
+}
+
+function normalizeStatus(value) {
+  const status = String(value || '').trim();
+  return STATUS_OPTIONS.includes(status) ? status : 'Processing';
+}
+
 function clampNumber(value, fallback, min = -Infinity, max = Infinity) {
   const n = Number(value);
   if (Number.isNaN(n)) return fallback;
@@ -678,8 +737,7 @@ function formatPeso(value) {
 }
 
 function formatDate(value) {
-  const d = new Date(value);
-  return d.toLocaleString();
+  return new Date(value).toLocaleString();
 }
 
 function escapeHtml(value) {
@@ -692,5 +750,5 @@ function escapeHtml(value) {
 }
 
 function escapeAttr(value) {
-  return escapeHtml(value);
+  return escapeHtml(value).replaceAll('\n', '&#10;');
 }
