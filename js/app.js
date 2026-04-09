@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'shein_pos_lite_v4';
+const STORAGE_KEY = 'shein_pos_lite_v5';
 
 const state = loadState();
 let editingOrderId = null;
@@ -10,18 +10,27 @@ const checkoutGroups = document.getElementById('checkout-groups');
 const customerList = document.getElementById('customer-list');
 const accountsTbody = document.getElementById('accounts-tbody');
 const ordersTbody = document.getElementById('orders-tbody');
-const editCheckoutCard = document.getElementById('edit-checkout-card');
+const editModal = document.getElementById('edit-modal');
 const editOrderForm = document.getElementById('edit-order-form');
-const editCustomerDisplay = document.getElementById('edit-customer-display');
+const editCustomerName = document.getElementById('edit-customer-name');
+const editCustomerTag = document.getElementById('edit-customer-tag');
+const editItemCount = document.getElementById('edit-item-count');
+const editAccountId = document.getElementById('edit-account-id');
+const editVoucherUsed = document.getElementById('edit-voucher-used');
 const editTracking = document.getElementById('edit-tracking');
+const editTotalPrice = document.getElementById('edit-total-price');
+const editDiscountedPrice = document.getElementById('edit-discounted-price');
+const editRefund = document.getElementById('edit-refund');
 const editDeliveryStatus = document.getElementById('edit-delivery-status');
 const cancelEditBtn = document.getElementById('cancel-edit-btn');
+const closeModalBtn = document.getElementById('close-modal-btn');
 
 accountForm.addEventListener('submit', onAddAccount);
 orderForm.addEventListener('submit', onAddOrderBatch);
 editOrderForm.addEventListener('submit', onSaveOrderEdit);
 checkoutCountSelect.addEventListener('change', syncCheckoutGroups);
-cancelEditBtn.addEventListener('click', closeEditCard);
+cancelEditBtn.addEventListener('click', closeEditModal);
+closeModalBtn.addEventListener('click', closeEditModal);
 document.getElementById('export-btn').addEventListener('click', exportBackup);
 document.getElementById('import-file').addEventListener('change', importBackup);
 document.getElementById('reset-btn').addEventListener('click', resetData);
@@ -30,9 +39,20 @@ document.addEventListener('click', (e) => {
   const deleteAccountId = e.target.getAttribute('data-delete-account');
   const deleteOrderId = e.target.getAttribute('data-delete-order');
   const editOrderId = e.target.getAttribute('data-edit-order');
+  const closeModal = e.target.getAttribute('data-close-modal');
   if (deleteAccountId) deleteAccount(deleteAccountId);
   if (deleteOrderId) deleteOrder(deleteOrderId);
-  if (editOrderId) openEditCard(editOrderId);
+  if (editOrderId) openEditModal(editOrderId);
+  if (closeModal) closeEditModal();
+});
+
+document.addEventListener('change', (e) => {
+  const orderId = e.target.getAttribute('data-status-order');
+  if (orderId) updateOrderStatus(orderId, e.target.value);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !editModal.hidden) closeEditModal();
 });
 
 migrateLegacyData();
@@ -52,7 +72,7 @@ function loadState() {
 function migrateLegacyData() {
   if (state.accounts.length || state.orders.length) return;
 
-  const legacyKeys = ['shein_pos_lite_v3', 'shein_pos_lite_v2', 'shein_pos_lite_v1'];
+  const legacyKeys = ['shein_pos_lite_v4', 'shein_pos_lite_v3', 'shein_pos_lite_v2', 'shein_pos_lite_v1'];
   for (const key of legacyKeys) {
     try {
       const legacyRaw = localStorage.getItem(key);
@@ -184,45 +204,133 @@ function onSaveOrderEdit(e) {
 
   const order = state.orders.find(item => item.id === editingOrderId);
   if (!order) {
-    closeEditCard();
+    closeEditModal();
     return;
   }
 
+  const newCustomerName = String(editCustomerName.value || '').trim();
+  const newCustomerTag = String(editCustomerTag.value || '').trim();
+  if (!newCustomerName) {
+    alert('Customer name is required.');
+    return;
+  }
+
+  const oldBatchId = order.batchId;
+  const batchOrders = state.orders.filter(item => item.batchId === oldBatchId);
+
+  order.itemCount = clampNumber(editItemCount.value, 1, 1);
+  order.accountId = String(editAccountId.value || '').trim();
+  order.voucherUsed = String(editVoucherUsed.value || '').trim();
   order.tracking = String(editTracking.value || '').trim();
+  order.totalPrice = clampNumber(editTotalPrice.value, 0, 0);
+  order.discountedPrice = clampNumber(editDiscountedPrice.value, 0, 0);
+  order.refund = clampNumber(editRefund.value, 0, 0);
   order.deliveryStatus = normalizeStatus(editDeliveryStatus.value);
+
+  const nameChanged = order.customerName !== newCustomerName || order.customerTag !== newCustomerTag;
+
+  if (nameChanged) {
+    renameBatch(oldBatchId, newCustomerName, newCustomerTag);
+  } else {
+    order.customerName = newCustomerName;
+    order.customerTag = newCustomerTag;
+    if (batchOrders.length === 1) {
+      order.batchId = oldBatchId;
+    }
+  }
+
   saveState();
-  closeEditCard();
+  closeEditModal();
   render();
 }
 
-function openEditCard(orderId) {
+function renameBatch(oldBatchId, customerName, customerTag) {
+  const batchOrders = state.orders
+    .filter(item => item.batchId === oldBatchId)
+    .sort((a, b) => a.checkoutId.localeCompare(b.checkoutId));
+
+  if (!batchOrders.length) return;
+
+  const suffixMatch = String(oldBatchId).match(/-(\d+)$/);
+  const preservedNumber = suffixMatch ? suffixMatch[1] : '001';
+  const base = normalizeBatchBase(customerName, customerTag);
+  let candidateBatchId = `${base}-${preservedNumber}`;
+
+  const conflicting = state.orders.some(item => item.batchId === candidateBatchId && item.batchId !== oldBatchId);
+  if (conflicting) {
+    candidateBatchId = generateBatchId(customerName, customerTag);
+  }
+
+  batchOrders.forEach((item, index) => {
+    item.customerName = customerName;
+    item.customerTag = customerTag;
+    item.batchId = candidateBatchId;
+    item.checkoutId = `${candidateBatchId}-${String(index + 1).padStart(2, '0')}`;
+  });
+}
+
+function openEditModal(orderId) {
   const order = state.orders.find(item => item.id === orderId);
   if (!order) return;
 
   editingOrderId = order.id;
-  const customerLabel = order.customerTag ? `${order.customerName} (${order.customerTag})` : order.customerName;
-  editCustomerDisplay.value = customerLabel;
+  editCustomerName.value = order.customerName || '';
+  editCustomerTag.value = order.customerTag || '';
+  editItemCount.value = order.itemCount || 1;
+  editVoucherUsed.value = order.voucherUsed || '';
   editTracking.value = order.tracking || '';
+  editTotalPrice.value = order.totalPrice ?? '';
+  editDiscountedPrice.value = order.discountedPrice ?? '';
+  editRefund.value = order.refund ?? 0;
   editDeliveryStatus.value = normalizeStatus(order.deliveryStatus);
-  editCheckoutCard.hidden = false;
-  editCheckoutCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  editTracking.focus();
+  renderEditAccountOptions(order.accountId || '');
+  editModal.hidden = false;
+  document.body.classList.add('modal-open');
+  editCustomerName.focus();
 }
 
-function closeEditCard() {
+function closeEditModal() {
   editingOrderId = null;
   editOrderForm.reset();
   editDeliveryStatus.value = 'Processing';
-  editCheckoutCard.hidden = true;
+  editModal.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function renderEditAccountOptions(selectedId = '') {
+  const options = ['<option value="">Select account</option>']
+    .concat(state.accounts.map(account => {
+      const status = getAccountStatus(account);
+      return `<option value="${escapeAttr(account.id)}">${escapeHtml(account.email)} — ${escapeHtml(status)}</option>`;
+    }))
+    .join('');
+
+  editAccountId.innerHTML = options;
+  editAccountId.value = selectedId;
+}
+
+function updateOrderStatus(orderId, status) {
+  const order = state.orders.find(item => item.id === orderId);
+  if (!order) return;
+  order.deliveryStatus = normalizeStatus(status);
+  saveState();
+  render();
 }
 
 function generateBatchId(customerName, customerTag = '') {
-  const base = normalizeCustomerKey(customerTag ? `${customerName}-${customerTag}` : customerName) || 'CUSTOMER';
-  const related = state.orders.filter(order => {
-    const existingBase = String(order.batchId || '').replace(/-\d+$/, '');
-    return existingBase === base;
-  }).length;
-  return `${base}-${String(related + 1).padStart(3, '0')}`;
+  const base = normalizeBatchBase(customerName, customerTag);
+  const usedNumbers = state.orders
+    .map(order => String(order.batchId || ''))
+    .filter(id => id.startsWith(`${base}-`))
+    .map(id => Number(id.split('-').pop()))
+    .filter(num => Number.isFinite(num));
+
+  const nextNumber = usedNumbers.length ? Math.max(...usedNumbers) + 1 : 1;
+  return `${base}-${String(nextNumber).padStart(3, '0')}`;
+}
+
+function normalizeBatchBase(customerName, customerTag = '') {
+  return normalizeCustomerKey(customerTag ? `${customerName}-${customerTag}` : customerName) || 'CUSTOMER';
 }
 
 function normalizeCustomerKey(name) {
@@ -310,7 +418,7 @@ function deleteAccount(accountId) {
 function deleteOrder(orderId) {
   if (!confirm('Delete this checkout?')) return;
   state.orders = state.orders.filter(o => o.id !== orderId);
-  if (editingOrderId === orderId) closeEditCard();
+  if (editingOrderId === orderId) closeEditModal();
   saveState();
   render();
 }
@@ -350,6 +458,10 @@ function render() {
   renderSummary();
   renderCustomers();
   renderAccountOptionsInGroups();
+  if (editingOrderId) {
+    const editingOrder = state.orders.find(item => item.id === editingOrderId);
+    if (editingOrder) renderEditAccountOptions(editingOrder.accountId || '');
+  }
 }
 
 function renderCustomers() {
@@ -409,7 +521,11 @@ function renderOrders() {
         <td>${formatPeso(order.discountedPrice)}</td>
         <td>${formatPeso(order.refund)}</td>
         <td>${formatPeso(profit)}</td>
-        <td>${escapeHtml(order.deliveryStatus)}</td>
+        <td>
+          <select class="inline-status" data-status-order="${escapeAttr(order.id)}">
+            ${['Processing', 'Shipped', 'Delivered', 'Cancelled'].map(status => `<option value="${status}" ${order.deliveryStatus === status ? 'selected' : ''}>${status}</option>`).join('')}
+          </select>
+        </td>
         <td>
           <button class="small-btn" data-edit-order="${escapeAttr(order.id)}">Edit</button>
           <button class="small-btn" data-delete-order="${escapeAttr(order.id)}">Delete</button>
@@ -451,7 +567,7 @@ function importBackup(e) {
       state.accounts = parsed.accounts;
       state.orders = parsed.orders.map((order, index) => normalizeOrder(order, index));
       saveState();
-      closeEditCard();
+      closeEditModal();
       syncCheckoutGroups();
       render();
       alert('Backup imported.');
@@ -468,7 +584,7 @@ function resetData() {
   localStorage.removeItem(STORAGE_KEY);
   state.accounts = [];
   state.orders = [];
-  closeEditCard();
+  closeEditModal();
   syncCheckoutGroups();
   render();
 }
