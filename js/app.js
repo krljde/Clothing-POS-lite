@@ -512,14 +512,14 @@ function syncCheckoutGroups() {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Account *</label>
-            <select class="form-select group-account-select" data-index="${i}" required>
+            <select class="form-select group-account-select" name="accountId[]" data-index="${i}" required>
               <option value="">Select account…</option>
               ${state.accounts.map(a => `<option value="${a.id}" ${old.accountId === a.id ? 'selected' : ''}>${escapeHtml(a.email)}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">Voucher *</label>
-            <select class="form-select group-voucher-select" data-index="${i}" required></select>
+            <select class="form-select group-voucher-select" name="voucherUsed[]" data-index="${i}" required></select>
             <span class="voucher-warn" id="vwarn-${i}">⚠ Voucher already used on another order</span>
           </div>
           <div class="form-group">
