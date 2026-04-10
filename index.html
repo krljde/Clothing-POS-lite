@@ -13,7 +13,7 @@
       <div class="brand">
         <div class="brand-icon">🛍</div>
         <div>
-          <span class="brand-eyebrow">Test POS</span>
+          <span class="brand-eyebrow">Boutique POS</span>
           <span class="brand-name">Kaycee's Clo.</span>
         </div>
       </div>
@@ -191,8 +191,15 @@
               <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="20" required />
             </div>
             <div class="form-group span-2">
-              <label class="form-label">Available Vouchers * <span style="font-weight:400;color:var(--text-3)">(comma-separated)</span></label>
-              <input class="form-input" name="vouchers" placeholder="83%, 79%, FS" required />
+              <label class="form-label">Available Vouchers *</label>
+              <div class="voucher-picker" id="voucher-picker">
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="83%"> 83%</label>
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="81%"> 81%</label>
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="79%"> 79%</label>
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="75%"> 75%</label>
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="70%"> 70%</label>
+              </div>
+              <input type="hidden" name="vouchers" id="vouchers-hidden" />
             </div>
           </div>
         </div>

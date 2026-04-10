@@ -227,6 +227,21 @@ button { cursor: pointer; border: none; background: none; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-row.cols-1 { grid-template-columns: 1fr; }
 .span-2 { grid-column: span 2; }
+
+/* ─── Voucher Picker ──────────────────────────────────── */
+.voucher-picker {
+  display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0;
+}
+.voucher-option {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 999px;
+  border: 1.5px solid var(--border); background: var(--surface);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all var(--t); user-select: none;
+}
+.voucher-option:hover { border-color: var(--accent); background: var(--accent-soft); }
+.voucher-option input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+.voucher-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .form-input, .form-select {
@@ -420,13 +435,13 @@ button { cursor: pointer; border: none; background: none; }
 .customer-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
 .customer-card-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px; gap: 12px; flex-wrap: wrap;
+  padding: 16px; gap: 12px; flex-wrap: wrap; min-width: 0;
 }
 .customer-card-name { font-weight: 700; font-size: 16px; }
 .customer-card-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .customer-card-right { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.customer-stat { text-align: right; }
-.customer-stat .cs-val { font-weight: 700; font-size: 15px; display: block; }
+.customer-stat { text-align: right; min-width: 0; }
+.customer-stat .cs-val { font-weight: 700; font-size: 15px; display: block; white-space: nowrap; }
 .customer-stat .cs-lbl { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
 .customer-orders-preview {
   border-top: 1px solid var(--border-soft);

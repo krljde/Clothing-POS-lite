@@ -70,6 +70,7 @@ function bindEvents() {
   els.openCheckoutBtn.addEventListener('click', () => { syncCheckoutGroups(); openModal(els.checkoutModal); });
   els.accountSort.addEventListener('change', renderAccounts);
   els.accountForm.addEventListener('submit', onSaveAccount);
+  document.getElementById('voucher-picker').addEventListener('change', syncVoucherHidden);
   els.orderForm.addEventListener('submit', onAddOrderBatch);
   els.checkoutCount.addEventListener('change', syncCheckoutGroups);
   els.editOrderForm.addEventListener('submit', onSaveCheckoutEdit);
@@ -483,7 +484,12 @@ function openAccountModal(accountId = null) {
   els.accountForm.password.value = account?.password || '';
   els.accountForm.cost.value = account?.cost ?? 190;
   els.accountForm.expiryHours.value = account?.expiryHours ?? 20;
-  els.accountForm.vouchers.value = (account?.availableVouchers || []).join(', ');
+  // Sync voucher checkboxes
+  const existingVouchers = (account?.availableVouchers || []).map(v => voucherKey(v));
+  document.querySelectorAll('#voucher-picker input[type="checkbox"]').forEach(cb => {
+    cb.checked = existingVouchers.includes(voucherKey(cb.value));
+  });
+  syncVoucherHidden();
   openModal(els.accountModal);
 }
 
@@ -977,6 +983,10 @@ function generateBatchId(customerName, customerTag = '', preserveBatchId = null)
 function voucherKey(v) { return String(v || '').trim().toLowerCase(); }
 function splitVouchers(v) { return uniqueByVoucherKey(String(v || '').split(/[,+]/).map(s => s.trim()).filter(Boolean)); }
 function uniqueByVoucherKey(items) { const seen = new Set(); return items.filter(i => { const k = voucherKey(i); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
+function syncVoucherHidden() {
+  const checked = [...document.querySelectorAll('#voucher-picker input[type="checkbox"]:checked')].map(cb => cb.value);
+  document.getElementById('vouchers-hidden').value = checked.join(', ');
+}
 function normalizeStatus(v) { const m = STATUS_OPTIONS.find(s => s.toLowerCase() === String(v||'').toLowerCase()); return m || 'Processing'; }
 function normalizeStatusClass(v) { return normalizeStatus(v).toLowerCase(); }
 function uniqueTracking(checkouts) { return [...new Set(checkouts.map(i => String(i.tracking||'').trim()).filter(Boolean))]; }
