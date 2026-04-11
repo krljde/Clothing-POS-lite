@@ -345,9 +345,79 @@ button { cursor: pointer; border: none; background: none; }
 }
 .cog-item:hover { background: var(--surface-2); }
 @media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; }
-  .topbar-actions { width: 100%; justify-content: flex-end; }
+  .topbar { flex-wrap: nowrap; }
+  .topnav { display: none; }
+  .topbar-actions { display: none; }
 }
+
+/* ─── Bottom Tab Bar (mobile only) ───────────────────── */
+.bottom-nav {
+  display: none;
+}
+@media (max-width: 640px) {
+  .app-shell { padding: 0 12px 90px; }
+  .bottom-nav {
+    display: flex;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 90;
+    padding: 0 4px env(safe-area-inset-bottom, 0);
+    box-shadow: 0 -2px 12px rgba(0,0,0,.07);
+  }
+  .tab-btn {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; padding: 8px 4px 10px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-3); font-size: 10px;
+    font-weight: 600; letter-spacing: .03em;
+    transition: color var(--t);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tab-btn.active { color: var(--accent); }
+  .tab-icon { font-size: 20px; line-height: 1; display: block; }
+  .tab-label { display: block; }
+}
+
+/* ─── More Sheet (mobile) ─────────────────────────────── */
+.more-sheet-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  z-index: 95;
+}
+.more-sheet-backdrop.visible { display: block; }
+.more-sheet {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  padding: 12px 0 calc(80px + env(safe-area-inset-bottom, 0));
+  z-index: 96;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.12);
+  animation: sheetUp 220ms cubic-bezier(.34,1.56,.64,1);
+}
+.more-sheet.visible { display: block; }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.more-sheet-handle {
+  width: 36px; height: 4px; border-radius: 999px;
+  background: var(--border); margin: 0 auto 16px;
+}
+.more-sheet-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-3);
+  padding: 0 20px 10px;
+}
+.more-sheet-item {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 14px 20px;
+  font-size: 15px; font-weight: 600; color: var(--text);
+  background: none; border: none; cursor: pointer; text-align: left;
+  transition: background var(--t);
+}
+.more-sheet-item:hover { background: var(--surface-2); }
+.more-sheet-icon { font-size: 18px; width: 28px; text-align: center; }
 
 /* ─── Filter bar ──────────────────────────────────────── */
 .filter-bar {
@@ -493,4 +563,29 @@ button { cursor: pointer; border: none; background: none; }
 @media (max-width: 640px) {
   .customer-history-grid { grid-template-columns: 1fr 1fr; }
   .customer-card-right { gap: 10px; }
+}
+
+/* ─── Pending Orders ──────────────────────────────────── */
+.pending-empty { text-align: center; padding: 48px 20px; color: var(--text-3); font-size: 14px; }
+.pending-empty-icon { font-size: 40px; margin-bottom: 10px; }
+.pending-row {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 16px;
+  box-shadow: var(--shadow-sm); display: flex;
+  align-items: center; gap: 14px;
+  transition: box-shadow var(--t);
+}
+.pending-row:hover { box-shadow: var(--shadow); }
+.pending-row + .pending-row { margin-top: 8px; }
+.pending-info { flex: 1; min-width: 0; display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.5fr; gap: 10px; align-items: center; }
+.pending-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-convert {
+  height: 34px; padding: 0 14px; border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 700; cursor: pointer; border: none;
+  background: var(--accent); color: #fff;
+  transition: filter var(--t);
+}
+.btn-convert:hover { filter: brightness(1.1); }
+@media (max-width: 640px) {
+  .pending-info { grid-template-columns: 1fr 1fr; gap: 8px; }
 }

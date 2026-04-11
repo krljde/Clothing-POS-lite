@@ -22,19 +22,62 @@
         <button class="nav-btn" data-view-target="accounts-view" type="button">Accounts</button>
         <button class="nav-btn" data-view-target="orders-view" type="button">Orders</button>
         <button class="nav-btn" data-view-target="customers-view" type="button">Customers</button>
+        <button class="nav-btn" data-view-target="pending-view" type="button">Pending</button>
       </nav>
       <div class="topbar-actions">
         <div class="cog-menu" id="cog-menu">
           <button type="button" class="btn btn-secondary btn-sm cog-toggle" id="cog-toggle" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
           <div class="cog-dropdown" id="cog-dropdown" hidden>
-            <button type="button" class="cog-item" id="export-btn">⬇ Export backup</button>
+            <button type="button" class="cog-item" id="export-btn-desktop">⬇ Export backup</button>
             <label class="cog-item" style="cursor:pointer">
-              ⬆ Import backup <input type="file" id="import-input" accept=".json" style="display:none" />
+              ⬆ Import backup <input type="file" id="import-input-desktop" accept=".json" style="display:none" />
             </label>
           </div>
         </div>
       </div>
     </header>
+
+    <!-- ── BOTTOM TAB BAR (mobile only) ──────────────── -->
+    <nav class="bottom-nav" aria-label="Mobile navigation">
+      <button class="tab-btn active" data-view-target="home-view" type="button">
+        <span class="tab-icon">🏠</span>
+        <span class="tab-label">Home</span>
+      </button>
+      <button class="tab-btn" data-view-target="accounts-view" type="button">
+        <span class="tab-icon">👤</span>
+        <span class="tab-label">Accounts</span>
+      </button>
+      <button class="tab-btn" data-view-target="orders-view" type="button">
+        <span class="tab-icon">📦</span>
+        <span class="tab-label">Orders</span>
+      </button>
+      <button class="tab-btn" data-view-target="customers-view" type="button">
+        <span class="tab-icon">👥</span>
+        <span class="tab-label">Customers</span>
+      </button>
+      <button class="tab-btn" data-view-target="pending-view" type="button">
+        <span class="tab-icon">⏳</span>
+        <span class="tab-label">Pending</span>
+      </button>
+      <button class="tab-btn" id="more-tab-btn" type="button">
+        <span class="tab-icon">⋯</span>
+        <span class="tab-label">More</span>
+      </button>
+    </nav>
+
+    <!-- ── MORE SHEET (mobile) ───────────────────────── -->
+    <div class="more-sheet-backdrop" id="more-sheet-backdrop" hidden></div>
+    <div class="more-sheet" id="more-sheet" hidden>
+      <div class="more-sheet-handle"></div>
+      <div class="more-sheet-title">Options</div>
+      <button type="button" class="more-sheet-item" id="export-btn">
+        <span class="more-sheet-icon">⬇</span> Export backup
+      </button>
+      <label class="more-sheet-item" style="cursor:pointer">
+        <span class="more-sheet-icon">⬆</span> Import backup
+        <input type="file" id="import-input" accept=".json" style="display:none" />
+      </label>
+    </div>
 
     <main class="content">
 
@@ -77,6 +120,11 @@
             <div class="stat-icon si-purple">🛒</div>
             <span class="stat-label">Items Sold</span>
             <span class="stat-value" id="stat-items">0</span>
+          </article>
+          <article class="stat-card" style="cursor:pointer" onclick="setView('pending-view')">
+            <div class="stat-icon si-amber">⏳</div>
+            <span class="stat-label">Pending Orders</span>
+            <span class="stat-value" id="stat-pending">0</span>
           </article>
         </div>
 
@@ -151,10 +199,65 @@
         <div id="customers-list"></div>
       </section>
 
+      <!-- ── PENDING ORDERS ─────────────────────────── -->
+      <section class="view" id="pending-view">
+        <div class="page-header">
+          <div>
+            <span class="page-kicker">Pending</span>
+            <h2>Pending Orders</h2>
+          </div>
+          <div class="page-header-right">
+            <button type="button" id="open-pending-modal" class="btn btn-primary">+ Add Pending</button>
+          </div>
+        </div>
+        <div id="pending-list"></div>
+      </section>
+
     </main>
   </div>
 
   <button class="fab" id="open-checkout-modal" type="button" aria-label="Add new checkout">+</button>
+
+  <!-- ── PENDING MODAL ─────────────────────────────── -->
+  <div class="modal" id="pending-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="pending-modal"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">Pending</span>
+          <h2 id="pending-modal-title">Add Pending Order</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="pending-modal">✕</button>
+      </div>
+      <form id="pending-form">
+        <div class="modal-body">
+          <input type="hidden" name="pendingId" />
+          <div class="form-row">
+            <div class="form-group span-2">
+              <label class="form-label">Customer Name *</label>
+              <input class="form-input" name="customerName" list="customer-list" placeholder="Enter name" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Item Count *</label>
+              <input class="form-input" name="itemCount" type="number" min="1" step="1" placeholder="1" value="1" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Amount Paid (₱) *</label>
+              <input class="form-input" name="amountPaid" type="number" step="0.01" min="0" placeholder="0.00" required />
+            </div>
+            <div class="form-group span-2">
+              <label class="form-label">Notes</label>
+              <input class="form-input" name="notes" placeholder="e.g. paid via GCash, waiting for sale" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="pending-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Pending</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- ── TOAST ──────────────────────────────────────── -->
   <div id="toast" class="toast" hidden></div>
