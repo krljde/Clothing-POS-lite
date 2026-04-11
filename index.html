@@ -23,11 +23,13 @@
         <button class="nav-btn" data-view-target="orders-view" type="button">Orders</button>
         <button class="nav-btn" data-view-target="customers-view" type="button">Customers</button>
         <button class="nav-btn" data-view-target="pending-view" type="button">Pending</button>
+        <button class="nav-btn" data-view-target="stats-view" type="button">Stats</button>
       </nav>
       <div class="topbar-actions">
         <div class="cog-menu" id="cog-menu">
           <button type="button" class="btn btn-secondary btn-sm cog-toggle" id="cog-toggle" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
           <div class="cog-dropdown" id="cog-dropdown" hidden>
+            <button type="button" class="cog-item" id="gmail-dot-btn-desktop">📧 Gmail Dot Generator</button>
             <button type="button" class="cog-item" id="export-btn-desktop">⬇ Export backup</button>
             <label class="cog-item" style="cursor:pointer">
               ⬆ Import backup <input type="file" id="import-input-desktop" accept=".json" style="display:none" />
@@ -59,6 +61,10 @@
         <span class="tab-icon">⏳</span>
         <span class="tab-label">Pending</span>
       </button>
+      <button class="tab-btn" data-view-target="stats-view" type="button">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Stats</span>
+      </button>
       <button class="tab-btn" id="more-tab-btn" type="button">
         <span class="tab-icon">⋯</span>
         <span class="tab-label">More</span>
@@ -70,6 +76,9 @@
     <div class="more-sheet" id="more-sheet" hidden>
       <div class="more-sheet-handle"></div>
       <div class="more-sheet-title">Options</div>
+      <button type="button" class="more-sheet-item" id="gmail-dot-btn">
+        <span class="more-sheet-icon">📧</span> Gmail Dot Generator
+      </button>
       <button type="button" class="more-sheet-item" id="export-btn">
         <span class="more-sheet-icon">⬇</span> Export backup
       </button>
@@ -213,6 +222,44 @@
         <div id="pending-list"></div>
       </section>
 
+
+      <!-- ── STATISTICS ──────────────────────────────── -->
+      <section class="view" id="stats-view">
+        <div class="page-header">
+          <div>
+            <span class="page-kicker">Analytics</span>
+            <h2>Statistics</h2>
+          </div>
+        </div>
+
+        <!-- Range picker -->
+        <div class="stats-range-bar">
+          <div class="stats-range-chips" id="stats-range-chips">
+            <button class="chip active" data-range="today">Today</button>
+            <button class="chip" data-range="yesterday">Yesterday</button>
+            <button class="chip" data-range="7d">7 Days</button>
+            <button class="chip" data-range="30d">30 Days</button>
+            <button class="chip" data-range="month">This Month</button>
+            <button class="chip" data-range="custom">Custom</button>
+          </div>
+          <div class="stats-custom-range" id="stats-custom-range" hidden>
+            <input type="date" id="stats-date-from" class="form-input stats-date-input" />
+            <span class="stats-range-sep">to</span>
+            <input type="date" id="stats-date-to" class="form-input stats-date-input" />
+            <button type="button" class="btn btn-primary btn-sm" id="stats-apply-range">Apply</button>
+          </div>
+        </div>
+
+        <!-- KPI cards -->
+        <div class="stats-kpi-grid" id="stats-kpi-grid"></div>
+
+        <!-- Summary -->
+        <div class="stats-summary-card" id="stats-summary-card"></div>
+
+        <!-- Daily breakdown table -->
+        <div class="stats-breakdown" id="stats-breakdown"></div>
+      </section>
+
     </main>
   </div>
 
@@ -256,6 +303,29 @@
           <button type="submit" class="btn btn-primary">Save Pending</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ── GMAIL DOT MODAL ────────────────────────────── -->
+  <div class="modal" id="gmail-dot-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="gmail-dot-modal"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">Tool</span>
+          <h2>Gmail Dot Generator</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="gmail-dot-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-3);margin-top:-4px">Gmail ignores dots in addresses — use this to find unused variations of your email.</p>
+        <div class="form-group">
+          <label class="form-label">Your Gmail address</label>
+          <input class="form-input" id="gmail-dot-input" type="email" placeholder="yourname@gmail.com" />
+        </div>
+        <button type="button" class="btn btn-primary" id="gmail-dot-generate" style="width:100%">Generate Available Variations</button>
+        <div id="gmail-dot-results"></div>
+      </div>
     </div>
   </div>
 

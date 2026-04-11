@@ -11,6 +11,7 @@ let currentBatchId = null;
 let orderFilter = { query: '', status: '' };
 let customerQuery = '';
 let convertingPendingId = null;
+let statsRange = { type: 'today', from: null, to: null };
 
 /* ─── Element refs ────────────────────────────────────── */
 const els = {
@@ -64,6 +65,14 @@ const els = {
   openPendingBtn: document.getElementById('open-pending-modal'),
   pendingList: document.getElementById('pending-list'),
   statPending: document.getElementById('stat-pending'),
+  statsRangeChips: document.getElementById('stats-range-chips'),
+  statsCustomRange: document.getElementById('stats-custom-range'),
+  statsDateFrom: document.getElementById('stats-date-from'),
+  statsDateTo: document.getElementById('stats-date-to'),
+  statsApplyRange: document.getElementById('stats-apply-range'),
+  statsKpiGrid: document.getElementById('stats-kpi-grid'),
+  statsSummaryCard: document.getElementById('stats-summary-card'),
+  statsBreakdown: document.getElementById('stats-breakdown'),
 };
 
 /* ─── Boot ────────────────────────────────────────────── */
@@ -92,9 +101,33 @@ function bindEvents() {
   moreBtn.addEventListener('click', openMoreSheet);
   moreBackdrop.addEventListener('click', closeMoreSheet);
   document.getElementById('export-btn').addEventListener('click', () => { closeMoreSheet(); exportBackup(); });
+  document.getElementById('gmail-dot-btn').addEventListener('click', () => { closeMoreSheet(); openGmailDotModal(); });
+  document.getElementById('gmail-dot-generate').addEventListener('click', generateGmailDots);
   els.openAccountBtn.addEventListener('click', () => openAccountModal());
   els.openCheckoutBtn.addEventListener('click', () => { syncCheckoutGroups(); openModal(els.checkoutModal); });
   els.openPendingBtn.addEventListener('click', () => openPendingModal());
+
+  // Stats range chips
+  els.statsRangeChips.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip[data-range]');
+    if (!chip) return;
+    els.statsRangeChips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    const range = chip.dataset.range;
+    els.statsCustomRange.hidden = range !== 'custom';
+    if (range !== 'custom') {
+      statsRange = { type: range, from: null, to: null };
+      renderStats_view();
+    }
+  });
+  els.statsApplyRange.addEventListener('click', () => {
+    const from = els.statsDateFrom.value;
+    const to = els.statsDateTo.value;
+    if (!from || !to) return alert('Please select both dates.');
+    if (from > to) return alert('Start date must be before end date.');
+    statsRange = { type: 'custom', from, to };
+    renderStats_view();
+  });
   els.pendingForm.addEventListener('submit', onSavePending);
   els.accountSort.addEventListener('change', renderAccounts);
   els.accountForm.addEventListener('submit', onSaveAccount);
@@ -105,6 +138,11 @@ function bindEvents() {
 
   // Export / Import
   document.getElementById('export-btn-desktop').addEventListener('click', exportBackup);
+  document.getElementById('gmail-dot-btn-desktop').addEventListener('click', () => {
+    const cogDrop = document.getElementById('cog-dropdown');
+    cogDrop.hidden = true;
+    openGmailDotModal();
+  });
   document.querySelectorAll('#import-input, #import-input-desktop').forEach(inp => inp.addEventListener('change', (e) => {
     closeMoreSheet();
     importBackup(e);
@@ -229,6 +267,7 @@ function setView(viewId) {
   els.navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.viewTarget === viewId));
   els.tabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.viewTarget === viewId));
   if (viewId === 'customers-view') renderCustomerHistory();
+  if (viewId === 'stats-view') renderStats_view();
 }
 
 /* ─── Render All ──────────────────────────────────────── */
@@ -275,7 +314,7 @@ function renderRecentOrders() {
         <span class="order-mini-name">${escapeHtml(g.customerLabel)}</span>
         <span class="order-mini-meta">${formatDate(g.orderDate)} · ${g.checkouts.length} checkout${g.checkouts.length > 1 ? 's' : ''} · <span class="badge ${normalizeStatusClass(g.status)}" style="font-size:10px;padding:1px 7px">${g.status}</span></span>
       </div>
-      <span class="order-mini-profit">${peso(g.totalProfit)}</span>
+      <span class="order-mini-profit" style="${g.totalProfit < 0 ? 'color:#c0392b' : ''}">${peso(g.totalProfit)}</span>
     </button>
   `).join('');
 }
@@ -395,7 +434,7 @@ function renderOrders() {
         <div><span class="badge ${normalizeStatusClass(group.status)}">${group.status}</span></div>
         <div style="font-size:13px;font-weight:500;color:var(--text-2)">${escapeHtml(tracking)}</div>
         <div style="font-weight:600;font-size:14px">${peso(revenue)}</div>
-        <div style="font-weight:700;font-size:14px;color:var(--green)">${peso(group.totalProfit)}</div>
+        <div style="font-weight:700;font-size:14px;${group.totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(group.totalProfit)}</div>
       </button>
     `;
   }).join('');
@@ -462,7 +501,7 @@ function renderCustomerHistory() {
               <span class="cs-lbl">Revenue</span>
             </div>
             <div class="customer-stat">
-              <span class="cs-val" style="color:var(--green)">${peso(c.totalProfit)}</span>
+              <span class="cs-val" style="${c.totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(c.totalProfit)}</span>
               <span class="cs-lbl">Profit</span>
             </div>
             <div class="customer-stat">
@@ -500,7 +539,7 @@ function openCustomerModal(customerName) {
     <div class="chg-card"><span class="field-label">Order Batches</span><span class="field-main">${allGroups.length}</span></div>
     <div class="chg-card"><span class="field-label">Checkouts</span><span class="field-main">${totalCheckouts}</span></div>
     <div class="chg-card"><span class="field-label">Revenue</span><span class="field-main">${peso(totalRevenue)}</span></div>
-    <div class="chg-card"><span class="field-label">Profit</span><span class="field-main" style="color:var(--green)">${peso(totalProfit)}</span></div>
+    <div class="chg-card"><span class="field-label">Profit</span><span class="field-main" style="${totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(totalProfit)}</span></div>
   `;
   els.customerModalStats.className = 'customer-history-grid';
 
@@ -512,7 +551,7 @@ function openCustomerModal(customerName) {
           <div><span class="field-label">Date</span><span class="field-main">${formatDate(g.orderDate)}</span></div>
           <div><span class="field-label">Status</span><span class="badge ${normalizeStatusClass(g.status)}">${g.status}</span></div>
           <div><span class="field-label">Revenue</span><span class="field-main">${peso(revenue)}</span></div>
-          <div><span class="field-label">Profit</span><span class="field-main" style="color:var(--green)">${peso(g.totalProfit)}</span></div>
+          <div><span class="field-label">Profit</span><span class="field-main" style="${g.totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(g.totalProfit)}</span></div>
         </div>
         <div style="font-size:12px;color:var(--text-3);margin-top:4px">${g.checkouts.length} checkout${g.checkouts.length>1?'s':''} · Tracking: ${escapeHtml(uniqueTracking(g.checkouts).join(', ')||'—')}</div>
       </article>
@@ -725,7 +764,7 @@ function openBatchModal(batchId) {
       <div class="batch-metric"><span class="field-label">Tracking</span><span class="field-main">${escapeHtml(uniqueTracking(group.checkouts).join(', ') || '—')}</span></div>
       <div class="batch-metric"><span class="field-label">Items</span><span class="field-main">${group.totalItems}</span></div>
       <div class="batch-metric"><span class="field-label">Revenue</span><span class="field-main">${peso(revenue)}</span></div>
-      <div class="batch-metric"><span class="field-label">Profit</span><span class="field-main" style="color:var(--green)">${peso(group.totalProfit)}</span></div>
+      <div class="batch-metric"><span class="field-label">Profit</span><span class="field-main" style="${group.totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(group.totalProfit)}</span></div>
     </div>
   `;
   renderBatchCheckouts(group.checkouts);
@@ -759,7 +798,7 @@ function renderBatchCheckouts(checkouts) {
           <span class="field-main" style="color:var(--text-3)">−${peso(costShare)}</span>
           <span class="field-sub">${peso(accountCost)} ÷ ${ordersOnAccount} order${ordersOnAccount !== 1 ? 's' : ''}</span>
         </div>
-        <div><span class="field-label">Profit</span><span class="field-main" style="color:var(--green)">${peso(getOrderProfit(order))}</span></div>
+        <div><span class="field-label">Profit</span><span class="field-main" style="${getOrderProfit(order) < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(getOrderProfit(order))}</span></div>
       </div>
       <!-- Quick status buttons -->
       <div class="quick-status-bar">
@@ -973,6 +1012,225 @@ function convertPendingToCheckout(id) {
   openModal(els.checkoutModal);
   showToast(`Loaded "${p.customerName}" into checkout — complete and save.`, 'success');
 }
+
+
+/* ─── Statistics View ─────────────────────────────────── */
+function getStatsDateRange() {
+  const now = new Date();
+  const ymd = d => d.toISOString().slice(0, 10);
+  const startOf = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+  const endOf   = d => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+  switch (statsRange.type) {
+    case 'today':
+      return { from: startOf(now), to: endOf(now), label: 'Today', prevFrom: startOf(new Date(now - 86400000)), prevTo: endOf(new Date(now - 86400000)) };
+    case 'yesterday': {
+      const y = new Date(now - 86400000);
+      return { from: startOf(y), to: endOf(y), label: 'Yesterday', prevFrom: startOf(new Date(now - 172800000)), prevTo: endOf(new Date(now - 172800000)) };
+    }
+    case '7d': {
+      const f = startOf(new Date(now - 6 * 86400000));
+      return { from: f, to: endOf(now), label: 'Last 7 Days', prevFrom: startOf(new Date(now - 13 * 86400000)), prevTo: endOf(new Date(now - 7 * 86400000)) };
+    }
+    case '30d': {
+      const f = startOf(new Date(now - 29 * 86400000));
+      return { from: f, to: endOf(now), label: 'Last 30 Days', prevFrom: startOf(new Date(now - 59 * 86400000)), prevTo: endOf(new Date(now - 30 * 86400000)) };
+    }
+    case 'month': {
+      const f = new Date(now.getFullYear(), now.getMonth(), 1);
+      const pm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const pme = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { from: startOf(f), to: endOf(now), label: 'This Month', prevFrom: startOf(pm), prevTo: endOf(pme) };
+    }
+    case 'custom': {
+      const f = startOf(new Date(statsRange.from));
+      const t = endOf(new Date(statsRange.to));
+      const diff = t - f;
+      const fmt = v => new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(v + 'T00:00:00'));
+      const isSameYear = statsRange.from.slice(0,4) === statsRange.to.slice(0,4);
+      const fmtShort = v => new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', ...(isSameYear ? {} : { year: 'numeric' }) }).format(new Date(v + 'T00:00:00'));
+      const rangeLabel = statsRange.from === statsRange.to ? fmt(statsRange.from) : `${fmtShort(statsRange.from)} – ${fmt(statsRange.to)}`;
+      return { from: f, to: t, label: rangeLabel, prevFrom: new Date(f - diff), prevTo: new Date(f - 1) };
+    }
+    default: return { from: startOf(now), to: endOf(now), label: 'Today', prevFrom: startOf(new Date(now - 86400000)), prevTo: endOf(new Date(now - 86400000)) };
+  }
+}
+
+function calcMetrics(orders) {
+  const revenue   = orders.reduce((s, o) => s + Number(o.totalPrice || 0), 0);
+  const profit    = orders.reduce((s, o) => s + getOrderProfit(o), 0);
+  const items     = orders.reduce((s, o) => s + Number(o.itemCount || 0), 0);
+  const checkouts = orders.length;
+  const batches   = new Set(orders.map(o => o.batchId)).size;
+  const avgOrderValue = batches ? revenue / batches : 0;
+  return { revenue, profit, items, checkouts, batches, avgOrderValue };
+}
+
+function deltaArrow(curr, prev) {
+  if (prev === 0 && curr === 0) return { pct: 0, cls: 'flat', arrow: '─' };
+  if (prev === 0) return { pct: 100, cls: 'up', arrow: '▲' };
+  const pct = ((curr - prev) / Math.abs(prev)) * 100;
+  if (Math.abs(pct) < 0.5) return { pct: 0, cls: 'flat', arrow: '─' };
+  return pct > 0 ? { pct, cls: 'up', arrow: '▲' } : { pct, cls: 'down', arrow: '▼' };
+}
+
+function renderStats_view() {
+  if (!els.statsKpiGrid) return;
+  const { from, to, label, prevFrom, prevTo } = getStatsDateRange();
+  const inRange = (o, f, t) => { const d = new Date(o.createdAt); return d >= f && d <= t; };
+  const curr = state.orders.filter(o => inRange(o, from, to));
+  const prev = state.orders.filter(o => inRange(o, prevFrom, prevTo));
+  const cm = calcMetrics(curr);
+  const pm = calcMetrics(prev);
+
+  if (!curr.length) {
+    els.statsKpiGrid.innerHTML = '';
+    els.statsSummaryCard.innerHTML = '';
+    els.statsBreakdown.innerHTML = `
+      <div class="stats-no-data">
+        <div class="stats-no-data-icon">📭</div>
+        <p>No orders found for <strong>${label}</strong>.</p>
+      </div>`;
+    return;
+  }
+
+  // KPI cards
+  const kpis = [
+    { label: 'Profit',     value: peso(cm.profit),    raw: cm.profit,    prev: pm.profit,    green: true, val: cm.profit },
+    { label: 'Revenue',    value: peso(cm.revenue),   raw: cm.revenue,   prev: pm.revenue,   green: false },
+    { label: 'Checkouts',  value: cm.checkouts,       raw: cm.checkouts, prev: pm.checkouts, green: false },
+    { label: 'Items Sold', value: cm.items,            raw: cm.items,     prev: pm.items,     green: false },
+  ];
+  els.statsKpiGrid.innerHTML = kpis.map(k => {
+    const d = deltaArrow(k.raw, k.prev);
+    return `
+      <div class="stats-kpi-card">
+        <span class="stats-kpi-label">${k.label}</span>
+        <span class="stats-kpi-value ${k.green ? (k.val !== undefined ? (k.val < 0 ? 'red' : 'green') : 'green') : ''}">${k.value}</span>
+        <div class="stats-kpi-delta ${d.cls}">${d.arrow} ${Math.abs(d.pct).toFixed(0)}% vs prev period</div>
+      </div>`;
+  }).join('');
+
+  // Summary
+  const margin = cm.revenue ? ((cm.profit / cm.revenue) * 100).toFixed(1) : '0.0';
+  const avgProfit = cm.batches ? (cm.profit / cm.batches).toFixed(2) : '0.00';
+  els.statsSummaryCard.innerHTML = `
+    <div class="stats-summary-title">Summary — ${label}</div>
+    <div class="stats-summary-grid">
+      <div class="stats-summary-item"><span class="s-label">Order Batches</span><span class="s-val">${cm.batches}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Avg Order Value</span><span class="s-val">${peso(cm.avgOrderValue)}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Profit Margin</span><span class="s-val ${Number(margin) >= 0 ? 'green' : 'red'}">${margin}%</span></div>
+      <div class="stats-summary-item"><span class="s-label">Avg Profit / Batch</span><span class="s-val ${Number(avgProfit) >= 0 ? 'green' : 'red'}">${peso(avgProfit)}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Total Checkout Cost</span><span class="s-val">${peso(curr.reduce((s,o) => s + Number(o.discountedPrice||0), 0))}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Total Refunds</span><span class="s-val">${peso(curr.reduce((s,o) => s + Number(o.refund||0), 0))}</span></div>
+    </div>`;
+
+  // Daily breakdown
+  const dayMap = new Map();
+  curr.forEach(o => {
+    const day = o.createdAt.slice(0, 10);
+    if (!dayMap.has(day)) dayMap.set(day, []);
+    dayMap.get(day).push(o);
+  });
+  const days = [...dayMap.entries()].sort((a,b) => b[0].localeCompare(a[0]));
+  const showBreakdown = days.length > 1 || statsRange.type === 'custom' || ['7d','30d','month'].includes(statsRange.type);
+  if (!showBreakdown) { els.statsBreakdown.innerHTML = ''; return; }
+  els.statsBreakdown.innerHTML = `
+    <div class="stats-breakdown-head">
+      <div>Date</div><div>Revenue</div><div>Profit</div><div>Checkouts</div><div>Items</div>
+    </div>
+    ${days.map(([day, orders]) => {
+      const m = calcMetrics(orders);
+      const d = new Date(day + 'T00:00:00');
+      const label = new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
+      return `
+        <div class="stats-breakdown-row">
+          <div><span class="bd-mob-label">Date</span><strong>${label}</strong></div>
+          <div><span class="bd-mob-label">Revenue</span>${peso(m.revenue)}</div>
+          <div class="bd-profit ${m.profit < 0 ? 'neg' : ''}"><span class="bd-mob-label">Profit</span>${peso(m.profit)}</div>
+          <div><span class="bd-mob-label">Checkouts</span>${m.checkouts}</div>
+          <div><span class="bd-mob-label">Items</span>${m.items}</div>
+        </div>`;
+    }).join('')}`;
+}
+
+/* ─── Gmail Dot Generator ─────────────────────────────── */
+function openGmailDotModal() {
+  document.getElementById('gmail-dot-input').value = '';
+  document.getElementById('gmail-dot-results').innerHTML = '';
+  openModal(document.getElementById('gmail-dot-modal'));
+}
+
+function generateGmailDots() {
+  const raw = document.getElementById('gmail-dot-input').value.trim().toLowerCase();
+  if (!raw) return alert('Please enter a Gmail address.');
+
+  // Extract local part (strip @gmail.com or @googlemail.com)
+  const atIdx = raw.indexOf('@');
+  const local = atIdx !== -1 ? raw.slice(0, atIdx) : raw;
+  const domain = '@gmail.com';
+
+  // Normalize: remove existing dots
+  const base = local.replace(/\./g, '');
+  if (!base) return alert('Invalid email address.');
+
+  const n = base.length;
+  const totalCombos = Math.pow(2, n - 1);
+
+  // Get all dot variants already used in saved accounts (same base email)
+  const usedVariants = new Set(
+    state.accounts
+      .map(a => a.email.toLowerCase())
+      .filter(e => e.split('@')[0].replace(/\./g, '') === base)
+      .map(e => e.split('@')[0])
+  );
+
+  // Build full list of all possible variants
+  const allVariants = [];
+  for (let mask = 0; mask < totalCombos; mask++) {
+    let variant = base[0];
+    for (let i = 1; i < n; i++) {
+      if (mask & (1 << (i - 1))) variant += '.';
+      variant += base[i];
+    }
+    allVariants.push(variant);
+  }
+
+  const availableVariants = allVariants.filter(v => !usedVariants.has(v));
+
+  const resultsEl = document.getElementById('gmail-dot-results');
+
+  if (!availableVariants.length) {
+    resultsEl.innerHTML = '<p style="color:var(--text-3);font-size:13px;margin-top:12px">All dot variants are already used in your accounts.</p>';
+    return;
+  }
+
+  // Pick one random unused variant
+  const picked = availableVariants[Math.floor(Math.random() * availableVariants.length)] + domain;
+  const usedCount = usedVariants.size;
+  const remainingCount = availableVariants.length - 1;
+
+  resultsEl.innerHTML = `
+    <div style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px">
+        Generated · ${usedCount} already in accounts · ${remainingCount} others available
+      </div>
+      <div class="gmail-dot-list">
+        <div class="gmail-dot-item available">
+          <span class="gmail-dot-email">${escapeHtml(picked)}</span>
+          <button class="gmail-dot-copy" type="button" data-email="${escapeHtml(picked)}" title="Copy">⎘</button>
+        </div>
+      </div>
+      ${remainingCount > 0 ? `<p style="font-size:12px;color:var(--text-3);margin-top:8px">Hit Generate again for a different one.</p>` : ''}
+    </div>`;
+}
+
+// Copy on click inside results
+document.addEventListener('click', (e) => {
+  const copyBtn = e.target.closest('.gmail-dot-copy');
+  if (copyBtn) {
+    navigator.clipboard.writeText(copyBtn.dataset.email).then(() => showToast('Copied!', 'success'));
+  }
+});
 
 /* ─── Export / Import ─────────────────────────────────── */
 function exportBackup() {
