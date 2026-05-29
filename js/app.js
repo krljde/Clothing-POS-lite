@@ -10,7 +10,6 @@ let activeView = 'home-view';
 let currentBatchId = null;
 let orderFilter = { query: '', status: '' };
 let customerQuery = '';
-let convertingPendingId = null;
 let statsRange = { type: 'today', from: null, to: null };
 const adSpendOpenMonths = new Set([dayKey(new Date()).slice(0, 7)]); // months expanded in the Ad Spend Log
 
@@ -65,12 +64,6 @@ const els = {
   customerModalStats: document.getElementById('customer-modal-stats'),
   customerModalOrders: document.getElementById('customer-modal-orders'),
   toast: document.getElementById('toast'),
-  pendingModal: document.getElementById('pending-modal'),
-  pendingModalTitle: document.getElementById('pending-modal-title'),
-  pendingForm: document.getElementById('pending-form'),
-  openPendingBtn: document.getElementById('open-pending-modal'),
-  pendingList: document.getElementById('pending-list'),
-  statPending: document.getElementById('stat-pending'),
   statsRangeChips: document.getElementById('stats-range-chips'),
   statsCustomRange: document.getElementById('stats-custom-range'),
   statsDateFrom: document.getElementById('stats-date-from'),
@@ -111,7 +104,6 @@ function bindEvents() {
   document.getElementById('gmail-dot-btn').addEventListener('click', () => { closeMoreSheet(); openGmailDotModal(); });
   document.getElementById('gmail-dot-generate').addEventListener('click', generateGmailDots);
   els.openAccountBtn.addEventListener('click', () => openAccountModal());
-  els.openPendingBtn.addEventListener('click', () => openPendingModal());
 
   // FAB quick-actions menu
   function openFabMenu() {
@@ -132,7 +124,6 @@ function bindEvents() {
   els.fabMenuBackdrop.addEventListener('click', closeFabMenu);
   const fabAction = fn => () => { closeFabMenu(); fn(); };
   document.getElementById('fab-add-checkout').addEventListener('click', fabAction(() => { syncCheckoutGroups(); openModal(els.checkoutModal); }));
-  document.getElementById('fab-add-pending').addEventListener('click', fabAction(() => openPendingModal()));
   document.getElementById('fab-add-account').addEventListener('click', fabAction(() => openAccountModal()));
   document.getElementById('fab-add-adspend').addEventListener('click', fabAction(() => openAdSpendModal()));
   els.adspendModalForm.addEventListener('submit', onSaveAdSpendModal);
@@ -158,7 +149,6 @@ function bindEvents() {
     statsRange = { type: 'custom', from, to };
     renderStats_view();
   });
-  els.pendingForm.addEventListener('submit', onSavePending);
   els.accountSort.addEventListener('change', renderAccounts);
   els.accountForm.addEventListener('submit', onSaveAccount);
   document.getElementById('voucher-picker').addEventListener('change', syncVoucherHidden);
@@ -231,9 +221,6 @@ function bindEvents() {
   document.addEventListener('click', (e) => {
     const closeId = e.target.getAttribute('data-close-modal');
     if (closeId) {
-      if (closeId === 'checkout-modal' && convertingPendingId) {
-        convertingPendingId = null; // user cancelled — keep the pending order
-      }
       closeModal(document.getElementById(closeId)); return;
     }
 
@@ -254,15 +241,6 @@ function bindEvents() {
 
     const customerName = e.target.closest('[data-open-customer]')?.getAttribute('data-open-customer');
     if (customerName) { openCustomerModal(customerName); return; }
-
-    const editPendingId = e.target.getAttribute('data-edit-pending');
-    if (editPendingId) { openPendingModal(editPendingId); return; }
-
-    const deletePendingId = e.target.getAttribute('data-delete-pending');
-    if (deletePendingId) { deletePendingOrder(deletePendingId); return; }
-
-    const convertPendingId = e.target.getAttribute('data-convert-pending');
-    if (convertPendingId) { convertPendingToCheckout(convertPendingId); return; }
 
     if (e.target.id === 'adspend-add') { onAddAdSpend(); return; }
 
@@ -323,7 +301,6 @@ function render() {
   renderRecentOrders();
   renderAccounts();
   renderOrders();
-  renderPendingOrders();
   if (activeView === 'customers-view') renderCustomerHistory();
 }
 
@@ -348,7 +325,6 @@ function renderStats() {
   els.statAvailable.textContent = String(statuses.filter(s => s.status === 'Available').length);
   els.statExpired.textContent = String(statuses.filter(s => s.status === 'Expired').length);
   els.statItems.textContent = String(state.orders.reduce((s, o) => s + (Number(o.itemCount) || 0), 0));
-  if (els.statPending) els.statPending.textContent = String(state.pendingOrders.length);
 }
 
 /* ─── Customers datalist ──────────────────────────────── */
@@ -791,11 +767,6 @@ function onAddOrderBatch(e) {
       refund: item.refund, deliveryStatus: 'Processing'
     });
   });
-  // If this batch came from a pending order, remove it now that it's saved
-  if (convertingPendingId) {
-    state.pendingOrders = state.pendingOrders.filter(x => x.id !== convertingPendingId);
-    convertingPendingId = null;
-  }
   saveState();
   els.orderForm.reset();
   els.checkoutCount.value = '1';
@@ -971,104 +942,6 @@ function deleteOrder(orderId) {
   }
   showToast('Checkout deleted', 'success');
 }
-
-/* ─── Pending Orders ──────────────────────────────────── */
-function renderPendingOrders() {
-  if (!els.pendingList) return;
-  if (!state.pendingOrders.length) {
-    els.pendingList.innerHTML = `
-      <div class="pending-empty">
-        <div class="pending-empty-icon">⏳</div>
-        <p>No pending orders yet.<br>Add orders that have been paid but not yet processed.</p>
-      </div>`;
-    return;
-  }
-  els.pendingList.innerHTML = state.pendingOrders.map(p => `
-    <div class="pending-row">
-      <div class="pending-info">
-        <div>
-          <span class="field-label">Customer</span>
-          <span class="field-main wrap">${escapeHtml(p.customerName)}</span>
-        </div>
-        <div>
-          <span class="field-label">Items</span>
-          <span class="field-main">${escapeHtml(String(p.itemCount))}</span>
-        </div>
-        <div>
-          <span class="field-label">Amount Paid</span>
-          <span class="field-main">${peso(p.amountPaid)}</span>
-        </div>
-        <div>
-          <span class="field-label">Notes</span>
-          <span class="field-main">${escapeHtml(p.notes || '—')}</span>
-          <span class="field-sub">${formatDate(p.createdAt)}</span>
-        </div>
-      </div>
-      <div class="pending-actions">
-        <button class="btn-convert" type="button" data-convert-pending="${p.id}">→ Checkout</button>
-        <button class="btn btn-secondary btn-sm" type="button" data-edit-pending="${p.id}">Edit</button>
-        <button class="btn btn-danger btn-sm" type="button" data-delete-pending="${p.id}">Delete</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function openPendingModal(pendingId = null) {
-  const p = pendingId ? state.pendingOrders.find(x => x.id === pendingId) : null;
-  els.pendingModalTitle.textContent = p ? 'Edit Pending Order' : 'Add Pending Order';
-  els.pendingForm.reset();
-  els.pendingForm.pendingId.value = p?.id || '';
-  if (p) {
-    els.pendingForm.customerName.value = p.customerName;
-    els.pendingForm.itemCount.value = p.itemCount;
-    els.pendingForm.amountPaid.value = p.amountPaid;
-    els.pendingForm.notes.value = p.notes || '';
-  }
-  openModal(els.pendingModal);
-}
-
-function onSavePending(e) {
-  e.preventDefault();
-  const form = new FormData(els.pendingForm);
-  const id = String(form.get('pendingId') || '').trim();
-  const customerName = String(form.get('customerName') || '').trim();
-  const itemCount = clampNumber(form.get('itemCount'), 1, 1);
-  const amountPaid = clampNumber(form.get('amountPaid'), 0, 0);
-  const notes = String(form.get('notes') || '').trim();
-  if (!customerName) return alert('Please enter a customer name.');
-  if (id) {
-    const existing = state.pendingOrders.find(p => p.id === id);
-    if (existing) { existing.customerName = customerName; existing.itemCount = itemCount; existing.amountPaid = amountPaid; existing.notes = notes; }
-  } else {
-    state.pendingOrders.unshift({ id: uid('pnd'), customerName, itemCount, amountPaid, notes, createdAt: new Date().toISOString() });
-  }
-  saveState();
-  render();
-  closeModal(els.pendingModal);
-  showToast(id ? 'Pending order updated ✓' : 'Pending order added ✓', 'success');
-}
-
-function deletePendingOrder(id) {
-  if (!confirm('Delete this pending order?')) return;
-  state.pendingOrders = state.pendingOrders.filter(p => p.id !== id);
-  saveState();
-  render();
-  showToast('Pending order deleted', 'success');
-}
-
-function convertPendingToCheckout(id) {
-  const p = state.pendingOrders.find(x => x.id === id);
-  if (!p) return;
-  // Store the pending id — only delete it if the batch is actually saved
-  convertingPendingId = id;
-  syncCheckoutGroups();
-  els.orderForm.customerName.value = p.customerName;
-  const firstItemCount = els.checkoutGroups.querySelector('[name="itemCount[]"]');
-  if (firstItemCount) firstItemCount.value = p.itemCount;
-  openModal(els.checkoutModal);
-  showToast(`Loaded "${p.customerName}" into checkout — complete and save.`, 'success');
-}
-
 
 /* ─── Statistics View ─────────────────────────────────── */
 function getStatsDateRange() {
@@ -1417,7 +1290,7 @@ function exportBackup() {
   const cogDrop = document.getElementById('cog-dropdown'); if (cogDrop) cogDrop.hidden = true;
   const moreSheetEl = document.getElementById('more-sheet'); if (moreSheetEl) { moreSheetEl.classList.remove('visible'); setTimeout(() => { moreSheetEl.hidden = true; }, 220); }
   const moreBackEl = document.getElementById('more-sheet-backdrop'); if (moreBackEl) { moreBackEl.classList.remove('visible'); setTimeout(() => { moreBackEl.hidden = true; }, 220); }
-  const data = JSON.stringify({ accounts: state.accounts, orders: state.orders, pendingOrders: state.pendingOrders, exportedAt: new Date().toISOString() }, null, 2);
+  const data = JSON.stringify({ shopName: state.shopName, accounts: state.accounts, orders: state.orders, adSpend: state.adSpend, exportedAt: new Date().toISOString() }, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1437,12 +1310,11 @@ function importBackup(e) {
     try {
       const parsed = JSON.parse(ev.target.result);
       if (!Array.isArray(parsed.accounts) || !Array.isArray(parsed.orders)) throw new Error('Invalid file');
-      const pendingCount = parsed.pendingOrders?.length || 0;
-      const ok = confirm(`Import ${parsed.accounts.length} accounts, ${parsed.orders.length} orders, and ${pendingCount} pending orders?\n\nThis will REPLACE all current data.`);
+      const ok = confirm(`Import ${parsed.accounts.length} accounts and ${parsed.orders.length} orders?\n\nThis will REPLACE all current data.`);
       if (!ok) return;
       state.accounts = parsed.accounts;
       state.orders = parsed.orders;
-      state.pendingOrders = parsed.pendingOrders || [];
+      if (parsed.adSpend && typeof parsed.adSpend === 'object') state.adSpend = parsed.adSpend;
       saveState();
       render();
       showToast(`Imported ${parsed.accounts.length} accounts, ${parsed.orders.length} orders ✓`, 'success');
@@ -1624,10 +1496,10 @@ function escapeAttr(v) { return escapeHtml(v); }
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : { shopName: '', accounts: [], orders: [], pendingOrders: [], adSpend: {} };
-    parsed.shopName ||= ''; parsed.accounts ||= []; parsed.orders ||= []; parsed.pendingOrders ||= []; parsed.adSpend ||= {};
+    const parsed = raw ? JSON.parse(raw) : { shopName: '', accounts: [], orders: [], adSpend: {} };
+    parsed.shopName ||= ''; parsed.accounts ||= []; parsed.orders ||= []; parsed.adSpend ||= {};
     return parsed;
-  } catch { return { shopName: '', accounts: [], orders: [], pendingOrders: [], adSpend: {} }; }
+  } catch { return { shopName: '', accounts: [], orders: [], adSpend: {} }; }
 }
 function cacheState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function saveState() { cacheState(); window.POSCloud?.push(state); } // local cache + debounced cloud push
@@ -1641,7 +1513,6 @@ window.POS = {
     state.shopName = data.shopName || '';
     state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     state.orders = Array.isArray(data.orders) ? data.orders : [];
-    state.pendingOrders = Array.isArray(data.pendingOrders) ? data.pendingOrders : [];
     state.adSpend = data.adSpend && typeof data.adSpend === 'object' ? data.adSpend : {};
     cacheState();
     render();
@@ -1654,7 +1525,7 @@ window.POS = {
   },
   // On logout: wipe local copy so a shared device doesn't leak the previous user's data
   clearState() {
-    state.shopName = ''; state.accounts = []; state.orders = []; state.pendingOrders = []; state.adSpend = {};
+    state.shopName = ''; state.accounts = []; state.orders = []; state.adSpend = {};
     localStorage.removeItem(STORAGE_KEY);
     render();
   }

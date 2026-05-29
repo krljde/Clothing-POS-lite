@@ -630,31 +630,6 @@ button { cursor: pointer; border: none; background: none; }
   .customer-card-right { gap: 10px; }
 }
 
-/* ─── Pending Orders ──────────────────────────────────── */
-.pending-empty { text-align: center; padding: 48px 20px; color: var(--text-3); font-size: 14px; }
-.pending-empty-icon { font-size: 40px; margin-bottom: 10px; }
-.pending-row {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 16px;
-  box-shadow: var(--shadow-sm); display: flex;
-  align-items: center; gap: 14px;
-  transition: box-shadow var(--t);
-}
-.pending-row:hover { box-shadow: var(--shadow); }
-.pending-row + .pending-row { margin-top: 8px; }
-.pending-info { flex: 1; min-width: 0; display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.5fr; gap: 10px; align-items: center; }
-.pending-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.btn-convert {
-  height: 34px; padding: 0 14px; border-radius: var(--radius-sm);
-  font-size: 12px; font-weight: 700; cursor: pointer; border: none;
-  background: var(--accent); color: #fff;
-  transition: filter var(--t);
-}
-.btn-convert:hover { filter: brightness(1.1); }
-@media (max-width: 640px) {
-  .pending-info { grid-template-columns: 1fr 1fr; gap: 8px; }
-}
-
 /* ─── Statistics View ─────────────────────────────────── */
 .stats-range-bar {
   background: var(--surface); border: 1px solid var(--border);

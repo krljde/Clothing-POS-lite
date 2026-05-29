@@ -70,7 +70,6 @@ function toPlain(s) {
     shopName: s.shopName || '',
     accounts: s.accounts || [],
     orders: s.orders || [],
-    pendingOrders: s.pendingOrders || [],
     adSpend: s.adSpend || {},
     updatedAt: Date.now()
   };
@@ -169,7 +168,7 @@ onAuthStateChanged(auth, async (user) => {
     } else {
       // New account → start blank (plus the chosen shop name). We deliberately do NOT seed from
       // local data, so a shared device never leaks one user's data into another's new account.
-      const seed = { shopName: pendingShopName || '', accounts: [], orders: [], pendingOrders: [], adSpend: {}, updatedAt: Date.now() };
+      const seed = { shopName: pendingShopName || '', accounts: [], orders: [], adSpend: {}, updatedAt: Date.now() };
       await setDoc(docRef, seed);
       window.POS.applyRemoteState(seed);
     }
