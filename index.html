@@ -271,7 +271,60 @@
     </main>
   </div>
 
-  <button class="fab" id="open-checkout-modal" type="button" aria-label="Add new checkout">+</button>
+  <!-- ── FAB QUICK ACTIONS ──────────────────────────── -->
+  <div class="fab-backdrop" id="fab-menu-backdrop" hidden></div>
+  <div class="fab-menu" id="fab-menu" hidden>
+    <button type="button" class="fab-action" id="fab-add-checkout">
+      <span class="fab-action-label">Add Checkout Batch</span>
+      <span class="fab-action-icon">🧾</span>
+    </button>
+    <button type="button" class="fab-action" id="fab-add-pending">
+      <span class="fab-action-label">Add Pending Order</span>
+      <span class="fab-action-icon">⏳</span>
+    </button>
+    <button type="button" class="fab-action" id="fab-add-account">
+      <span class="fab-action-label">Add Account</span>
+      <span class="fab-action-icon">👤</span>
+    </button>
+    <button type="button" class="fab-action" id="fab-add-adspend">
+      <span class="fab-action-label">Log Ad Spend</span>
+      <span class="fab-action-icon">📣</span>
+    </button>
+  </div>
+  <button class="fab" id="fab-toggle" type="button" aria-label="Quick actions" aria-haspopup="true" aria-expanded="false">+</button>
+
+  <!-- ── AD SPEND MODAL ────────────────────────────── -->
+  <div class="modal" id="adspend-modal" hidden>
+    <div class="modal-backdrop" data-close-modal="adspend-modal"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">Expense</span>
+          <h2>Log Ad Spend</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-close-modal="adspend-modal">✕</button>
+      </div>
+      <form id="adspend-modal-form">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input class="form-input" name="date" id="adspend-modal-date" type="date" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Amount (₱) *</label>
+              <input class="form-input" name="amount" id="adspend-modal-amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+            </div>
+          </div>
+          <p class="adspend-note" style="margin:4px 0 0">Logging the same date again adds to that day's total.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="adspend-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- ── PENDING MODAL ─────────────────────────────── -->
   <div class="modal" id="pending-modal" hidden>

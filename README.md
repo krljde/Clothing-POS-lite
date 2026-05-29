@@ -109,10 +109,10 @@ a custom range adds up the days within it.
 
 - mobile-first
 - fast input
-- minimal navigation:
-  - Home
-  - Accounts
-  - Orders
+- minimal navigation: Home · Accounts · Orders · Customers · Pending · Stats
+- the **+** floating button opens quick actions: Add Checkout Batch, Add Pending Order,
+  Add Account, Log Ad Spend
+- the Ad Spend Log groups entries into **collapsible months** (current month open by default)
 
 ---
 

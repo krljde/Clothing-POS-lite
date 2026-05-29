@@ -12,6 +12,7 @@ let orderFilter = { query: '', status: '' };
 let customerQuery = '';
 let convertingPendingId = null;
 let statsRange = { type: 'today', from: null, to: null };
+const adSpendOpenMonths = new Set([dayKey(new Date()).slice(0, 7)]); // months expanded in the Ad Spend Log
 
 /* ─── Element refs ────────────────────────────────────── */
 const els = {
@@ -46,7 +47,11 @@ const els = {
   editAccountId: document.getElementById('edit-account-id'),
   editVoucherUsed: document.getElementById('edit-voucher-used'),
   openAccountBtn: document.getElementById('open-account-modal'),
-  openCheckoutBtn: document.getElementById('open-checkout-modal'),
+  fabToggle: document.getElementById('fab-toggle'),
+  fabMenu: document.getElementById('fab-menu'),
+  fabMenuBackdrop: document.getElementById('fab-menu-backdrop'),
+  adspendModal: document.getElementById('adspend-modal'),
+  adspendModalForm: document.getElementById('adspend-modal-form'),
   exportBtn: document.getElementById('export-btn-desktop'),
   importInput: document.getElementById('import-input-desktop'),
   orderSearch: document.getElementById('order-search'),
@@ -106,8 +111,31 @@ function bindEvents() {
   document.getElementById('gmail-dot-btn').addEventListener('click', () => { closeMoreSheet(); openGmailDotModal(); });
   document.getElementById('gmail-dot-generate').addEventListener('click', generateGmailDots);
   els.openAccountBtn.addEventListener('click', () => openAccountModal());
-  els.openCheckoutBtn.addEventListener('click', () => { syncCheckoutGroups(); openModal(els.checkoutModal); });
   els.openPendingBtn.addEventListener('click', () => openPendingModal());
+
+  // FAB quick-actions menu
+  function openFabMenu() {
+    els.fabMenu.hidden = false; els.fabMenuBackdrop.hidden = false;
+    requestAnimationFrame(() => { els.fabMenu.classList.add('visible'); els.fabMenuBackdrop.classList.add('visible'); });
+    els.fabToggle.classList.add('open');
+    els.fabToggle.setAttribute('aria-expanded', 'true');
+  }
+  function closeFabMenu() {
+    els.fabMenu.classList.remove('visible'); els.fabMenuBackdrop.classList.remove('visible');
+    els.fabToggle.classList.remove('open');
+    els.fabToggle.setAttribute('aria-expanded', 'false');
+    setTimeout(() => { els.fabMenu.hidden = true; els.fabMenuBackdrop.hidden = true; }, 220);
+  }
+  els.fabToggle.addEventListener('click', () => {
+    (els.fabMenu.classList.contains('visible') ? closeFabMenu : openFabMenu)();
+  });
+  els.fabMenuBackdrop.addEventListener('click', closeFabMenu);
+  const fabAction = fn => () => { closeFabMenu(); fn(); };
+  document.getElementById('fab-add-checkout').addEventListener('click', fabAction(() => { syncCheckoutGroups(); openModal(els.checkoutModal); }));
+  document.getElementById('fab-add-pending').addEventListener('click', fabAction(() => openPendingModal()));
+  document.getElementById('fab-add-account').addEventListener('click', fabAction(() => openAccountModal()));
+  document.getElementById('fab-add-adspend').addEventListener('click', fabAction(() => openAdSpendModal()));
+  els.adspendModalForm.addEventListener('submit', onSaveAdSpendModal);
 
   // Stats range chips
   els.statsRangeChips.addEventListener('click', (e) => {
@@ -240,6 +268,13 @@ function bindEvents() {
 
     const deleteAdSpendDay = e.target.getAttribute('data-delete-adspend');
     if (deleteAdSpendDay) { deleteAdSpendEntry(deleteAdSpendDay); return; }
+
+    const toggleMonth = e.target.closest('[data-toggle-month]')?.getAttribute('data-toggle-month');
+    if (toggleMonth) {
+      adSpendOpenMonths.has(toggleMonth) ? adSpendOpenMonths.delete(toggleMonth) : adSpendOpenMonths.add(toggleMonth);
+      renderAdSpendEditor();
+      return;
+    }
 
     // Quick status buttons inside batch modal
     const qs = e.target.closest('[data-quick-status]');
@@ -1197,13 +1232,8 @@ function renderAdSpendEditor() {
 
   const groupsHtml = [...byMonth.entries()].map(([mk, rows]) => {
     const monthTotal = rows.reduce((s, [, v]) => s + Number(v || 0), 0);
-    return `
-      <div class="adspend-group">
-        <div class="adspend-group-head">
-          <span class="adspend-group-month">${formatMonthKey(mk)}</span>
-          <span class="adspend-group-total">${peso(monthTotal)}</span>
-        </div>
-        ${rows.map(([day, amt]) => `
+    const open = adSpendOpenMonths.has(mk);
+    const daysHtml = rows.map(([day, amt]) => `
           <div class="adspend-row">
             <span class="adspend-day">${formatDayKey(day)}</span>
             <div class="adspend-input-wrap">
@@ -1212,7 +1242,16 @@ function renderAdSpendEditor() {
                      data-day="${day}" value="${Number(amt)}" />
             </div>
             <button type="button" class="adspend-del" data-delete-adspend="${day}" title="Remove entry" aria-label="Remove entry">✕</button>
-          </div>`).join('')}
+          </div>`).join('');
+    return `
+      <div class="adspend-group">
+        <button type="button" class="adspend-month-head${open ? ' open' : ''}" data-toggle-month="${mk}" aria-expanded="${open}">
+          <span class="adspend-chevron">▸</span>
+          <span class="adspend-group-month">${formatMonthKey(mk)}</span>
+          <span class="adspend-group-count">${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}</span>
+          <span class="adspend-group-total">${peso(monthTotal)}</span>
+        </button>
+        ${open ? `<div class="adspend-days">${daysHtml}</div>` : ''}
       </div>`;
   }).join('');
 
@@ -1235,17 +1274,37 @@ function renderAdSpendEditor() {
     </div>`;
 }
 
-function onAddAdSpend() {
-  const day = document.getElementById('adspend-date')?.value;
-  const amtEl = document.getElementById('adspend-amount');
-  const amt = clampNumber(amtEl?.value, 0, 0);
-  if (!day) return alert('Pick a date.');
-  if (!amt) return alert('Enter an amount.');
+// Shared logging path: accumulates same-day, persists, re-renders. Returns false if invalid.
+function addAdSpendEntry(day, amt) {
+  if (!day) { alert('Pick a date.'); return false; }
+  if (!amt) { alert('Enter an amount.'); return false; }
   state.adSpend[day] = (Number(state.adSpend[day]) || 0) + amt; // logging twice in a day accumulates
+  adSpendOpenMonths.add(day.slice(0, 7)); // expand the month we just logged into
   saveState();
   renderStats();
   renderStats_view();
   showToast('Ad spend logged ✓', 'success');
+  return true;
+}
+
+function onAddAdSpend() {
+  const day = document.getElementById('adspend-date')?.value;
+  const amt = clampNumber(document.getElementById('adspend-amount')?.value, 0, 0);
+  addAdSpendEntry(day, amt);
+}
+
+function openAdSpendModal() {
+  els.adspendModalForm.reset();
+  els.adspendModalForm.date.value = dayKey(new Date());
+  els.adspendModalForm.date.max = dayKey(new Date());
+  openModal(els.adspendModal);
+}
+
+function onSaveAdSpendModal(e) {
+  e.preventDefault();
+  const day = els.adspendModalForm.date.value;
+  const amt = clampNumber(els.adspendModalForm.amount.value, 0, 0);
+  if (addAdSpendEntry(day, amt)) closeModal(els.adspendModal);
 }
 
 function onAdSpendInput(input) {
@@ -1406,7 +1465,7 @@ function showToast(msg, type = '') {
 function openModal(modal) { modal.hidden = false; document.body.classList.add('modal-open'); }
 function closeModal(modal) {
   modal.hidden = true;
-  const allModals = [els.accountModal, els.checkoutModal, els.batchModal, els.editCheckoutModal, els.customerModal];
+  const allModals = [els.accountModal, els.checkoutModal, els.batchModal, els.editCheckoutModal, els.customerModal, els.adspendModal];
   if (allModals.every(m => m.hidden)) document.body.classList.remove('modal-open');
 }
 
