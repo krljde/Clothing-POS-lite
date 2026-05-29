@@ -65,6 +65,24 @@ Then:
 
 ---
 
+## Ad Spend (logged per day)
+
+Track money spent on ads **per day**, and have profit reflect it.
+
+- Log and edit ad spend in **Stats → Ad Spend Log**:
+  - Add an entry by picking a date + amount, then **Add** (logging the same date twice adds up).
+  - Edit any day's amount inline; clear it or hit **✕** to remove the entry.
+  - Entries are grouped by month with a monthly subtotal, plus an all-time total.
+- **Home → Net Profit** = gross profit − total ad spend (all time). A dedicated **Ad Spend** card shows the running total.
+- **Stats** shows **Net Profit** for the selected range, plus a separate **Ad Spend** KPI and a Gross / Ad Spend / Net breakdown in the summary.
+
+### How ad spend is applied to a date range
+A range simply **sums the daily entries that fall inside it** — no estimation or pro-rating. So
+"This Month" is the exact total of every day logged this month, "Today" is just today's entry, and
+a custom range adds up the days within it.
+
+---
+
 ## Accounts
 
 - add SHEIN accounts

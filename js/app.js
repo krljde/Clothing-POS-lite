@@ -20,6 +20,7 @@ const els = {
   tabBtns: [...document.querySelectorAll('.tab-btn[data-view-target]')],
   statCheckouts: document.getElementById('stat-checkouts'),
   statProfit: document.getElementById('stat-profit'),
+  statAdspend: document.getElementById('stat-adspend'),
   statRevenue: document.getElementById('stat-revenue'),
   statAvailable: document.getElementById('stat-available'),
   statExpired: document.getElementById('stat-expired'),
@@ -73,6 +74,7 @@ const els = {
   statsKpiGrid: document.getElementById('stats-kpi-grid'),
   statsSummaryCard: document.getElementById('stats-summary-card'),
   statsBreakdown: document.getElementById('stats-breakdown'),
+  statsAdspendCard: document.getElementById('stats-adspend-card'),
 };
 
 /* ─── Boot ────────────────────────────────────────────── */
@@ -234,6 +236,11 @@ function bindEvents() {
     const convertPendingId = e.target.getAttribute('data-convert-pending');
     if (convertPendingId) { convertPendingToCheckout(convertPendingId); return; }
 
+    if (e.target.id === 'adspend-add') { onAddAdSpend(); return; }
+
+    const deleteAdSpendDay = e.target.getAttribute('data-delete-adspend');
+    if (deleteAdSpendDay) { deleteAdSpendEntry(deleteAdSpendDay); return; }
+
     // Quick status buttons inside batch modal
     const qs = e.target.closest('[data-quick-status]');
     if (qs) {
@@ -250,6 +257,9 @@ function bindEvents() {
     }
     if (e.target.matches('.inline-status')) {
       updateInlineStatus(e.target.dataset.orderId, e.target.value);
+    }
+    if (e.target.matches('.adspend-input')) {
+      onAdSpendInput(e.target);
     }
     if (e.target === els.editAccountId) {
       fillVoucherSelect(els.editVoucherUsed, els.editAccountId.value, {
@@ -283,11 +293,15 @@ function render() {
 
 /* ─── Stats ───────────────────────────────────────────── */
 function renderStats() {
-  const profit = state.orders.reduce((s, o) => s + getOrderProfit(o), 0);
+  const grossProfit = state.orders.reduce((s, o) => s + getOrderProfit(o), 0);
+  const adSpend = getTotalAdSpend();
+  const profit = grossProfit - adSpend; // net of all-time ad spend
   const revenue = state.orders.reduce((s, o) => s + (Number(o.totalPrice) || 0), 0);
   const statuses = state.accounts.map(getAccountStatusInfo);
   els.statCheckouts.textContent = String(state.orders.length);
   els.statProfit.textContent = peso(profit);
+  if (els.statProfit) els.statProfit.style.color = profit < 0 ? '#c0392b' : '';
+  if (els.statAdspend) els.statAdspend.textContent = peso(adSpend);
   if (els.statRevenue) els.statRevenue.textContent = peso(revenue);
   els.statAvailable.textContent = String(statuses.filter(s => s.status === 'Available').length);
   els.statExpired.textContent = String(statuses.filter(s => s.status === 'Expired').length);
@@ -1082,7 +1096,16 @@ function renderStats_view() {
   const cm = calcMetrics(curr);
   const pm = calcMetrics(prev);
 
-  if (!curr.length) {
+  // Ad spend attributable to each range, and net profit (gross − ad spend)
+  const adCurr = adSpendForRange(from, to);
+  const adPrev = adSpendForRange(prevFrom, prevTo);
+  const netCurr = cm.profit - adCurr;
+  const netPrev = pm.profit - adPrev;
+
+  // Editor is always available, even with no orders in range
+  renderAdSpendEditor();
+
+  if (!curr.length && !adCurr) {
     els.statsKpiGrid.innerHTML = '';
     els.statsSummaryCard.innerHTML = '';
     els.statsBreakdown.innerHTML = `
@@ -1095,8 +1118,9 @@ function renderStats_view() {
 
   // KPI cards
   const kpis = [
-    { label: 'Profit',     value: peso(cm.profit),    raw: cm.profit,    prev: pm.profit,    green: true, val: cm.profit },
+    { label: 'Net Profit', value: peso(netCurr),      raw: netCurr,      prev: netPrev,      green: true, val: netCurr },
     { label: 'Revenue',    value: peso(cm.revenue),   raw: cm.revenue,   prev: pm.revenue,   green: false },
+    { label: 'Ad Spend',   value: peso(adCurr),       raw: adCurr,       prev: adPrev,       green: false },
     { label: 'Checkouts',  value: cm.checkouts,       raw: cm.checkouts, prev: pm.checkouts, green: false },
     { label: 'Items Sold', value: cm.items,            raw: cm.items,     prev: pm.items,     green: false },
   ];
@@ -1110,16 +1134,19 @@ function renderStats_view() {
       </div>`;
   }).join('');
 
-  // Summary
-  const margin = cm.revenue ? ((cm.profit / cm.revenue) * 100).toFixed(1) : '0.0';
-  const avgProfit = cm.batches ? (cm.profit / cm.batches).toFixed(2) : '0.00';
+  // Summary (margin & avg based on NET profit, after ad spend)
+  const margin = cm.revenue ? ((netCurr / cm.revenue) * 100).toFixed(1) : '0.0';
+  const avgProfit = cm.batches ? (netCurr / cm.batches).toFixed(2) : '0.00';
   els.statsSummaryCard.innerHTML = `
     <div class="stats-summary-title">Summary — ${label}</div>
     <div class="stats-summary-grid">
+      <div class="stats-summary-item"><span class="s-label">Gross Profit</span><span class="s-val ${cm.profit >= 0 ? 'green' : 'red'}">${peso(cm.profit)}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Ad Spend</span><span class="s-val">−${peso(adCurr)}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Net Profit</span><span class="s-val ${netCurr >= 0 ? 'green' : 'red'}">${peso(netCurr)}</span></div>
       <div class="stats-summary-item"><span class="s-label">Order Batches</span><span class="s-val">${cm.batches}</span></div>
       <div class="stats-summary-item"><span class="s-label">Avg Order Value</span><span class="s-val">${peso(cm.avgOrderValue)}</span></div>
-      <div class="stats-summary-item"><span class="s-label">Profit Margin</span><span class="s-val ${Number(margin) >= 0 ? 'green' : 'red'}">${margin}%</span></div>
-      <div class="stats-summary-item"><span class="s-label">Avg Profit / Batch</span><span class="s-val ${Number(avgProfit) >= 0 ? 'green' : 'red'}">${peso(avgProfit)}</span></div>
+      <div class="stats-summary-item"><span class="s-label">Net Margin</span><span class="s-val ${Number(margin) >= 0 ? 'green' : 'red'}">${margin}%</span></div>
+      <div class="stats-summary-item"><span class="s-label">Avg Net / Batch</span><span class="s-val ${Number(avgProfit) >= 0 ? 'green' : 'red'}">${peso(avgProfit)}</span></div>
       <div class="stats-summary-item"><span class="s-label">Total Checkout Cost</span><span class="s-val">${peso(curr.reduce((s,o) => s + Number(o.discountedPrice||0), 0))}</span></div>
       <div class="stats-summary-item"><span class="s-label">Total Refunds</span><span class="s-val">${peso(curr.reduce((s,o) => s + Number(o.refund||0), 0))}</span></div>
     </div>`;
@@ -1151,6 +1178,93 @@ function renderStats_view() {
           <div><span class="bd-mob-label">Items</span>${m.items}</div>
         </div>`;
     }).join('')}`;
+}
+
+/* ─── Ad Spend Log (Stats view) ───────────────────────── */
+function renderAdSpendEditor() {
+  if (!els.statsAdspendCard) return;
+  const entries = Object.entries(state.adSpend || {})
+    .filter(([, v]) => Number(v) > 0)
+    .sort((a, b) => b[0].localeCompare(a[0])); // newest day first
+
+  // Group days under their month, with a monthly subtotal
+  const byMonth = new Map();
+  entries.forEach(([day, amt]) => {
+    const mk = day.slice(0, 7);
+    if (!byMonth.has(mk)) byMonth.set(mk, []);
+    byMonth.get(mk).push([day, amt]);
+  });
+
+  const groupsHtml = [...byMonth.entries()].map(([mk, rows]) => {
+    const monthTotal = rows.reduce((s, [, v]) => s + Number(v || 0), 0);
+    return `
+      <div class="adspend-group">
+        <div class="adspend-group-head">
+          <span class="adspend-group-month">${formatMonthKey(mk)}</span>
+          <span class="adspend-group-total">${peso(monthTotal)}</span>
+        </div>
+        ${rows.map(([day, amt]) => `
+          <div class="adspend-row">
+            <span class="adspend-day">${formatDayKey(day)}</span>
+            <div class="adspend-input-wrap">
+              <span class="adspend-peso">₱</span>
+              <input class="form-input adspend-input" type="number" inputmode="decimal" step="0.01" min="0"
+                     data-day="${day}" value="${Number(amt)}" />
+            </div>
+            <button type="button" class="adspend-del" data-delete-adspend="${day}" title="Remove entry" aria-label="Remove entry">✕</button>
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+
+  const today = dayKey(new Date());
+  els.statsAdspendCard.innerHTML = `
+    <div class="stats-summary-title">Ad Spend Log</div>
+    <p class="adspend-note">Log what you spent on ads each day. Edit any amount inline, or remove an entry with ✕.</p>
+    <div class="adspend-add">
+      <input type="date" id="adspend-date" class="form-input" value="${today}" max="${today}" />
+      <div class="adspend-input-wrap">
+        <span class="adspend-peso">₱</span>
+        <input class="form-input adspend-amount-new" id="adspend-amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" id="adspend-add">Add</button>
+    </div>
+    ${entries.length ? `<div class="adspend-groups">${groupsHtml}</div>` : '<p class="empty-note" style="margin:14px 0">No ad spend logged yet.</p>'}
+    <div class="adspend-total">
+      <span class="s-label">Total Ad Spend (all time)</span>
+      <span class="s-val">${peso(getTotalAdSpend())}</span>
+    </div>`;
+}
+
+function onAddAdSpend() {
+  const day = document.getElementById('adspend-date')?.value;
+  const amtEl = document.getElementById('adspend-amount');
+  const amt = clampNumber(amtEl?.value, 0, 0);
+  if (!day) return alert('Pick a date.');
+  if (!amt) return alert('Enter an amount.');
+  state.adSpend[day] = (Number(state.adSpend[day]) || 0) + amt; // logging twice in a day accumulates
+  saveState();
+  renderStats();
+  renderStats_view();
+  showToast('Ad spend logged ✓', 'success');
+}
+
+function onAdSpendInput(input) {
+  const day = input.dataset.day;
+  if (!day) return;
+  const val = clampNumber(input.value, 0, 0);
+  if (val) state.adSpend[day] = val;
+  else delete state.adSpend[day]; // clearing the field removes the entry
+  saveState();
+  renderStats();        // home net profit + ad spend card
+  renderStats_view();   // KPIs, summary, and the log
+}
+
+function deleteAdSpendEntry(day) {
+  delete state.adSpend[day];
+  saveState();
+  renderStats();
+  renderStats_view();
+  showToast('Ad spend entry removed', 'success');
 }
 
 /* ─── Gmail Dot Generator ─────────────────────────────── */
@@ -1332,6 +1446,34 @@ function getOrderProfit(o) {
   const costShare = accountCost / ordersOnAccount;
   return Number(o.totalPrice||0) - Number(o.discountedPrice||0) + Number(o.refund||0) - costShare;
 }
+
+/* ─── Ad Spend (logged per day) ───────────────────────── */
+// state.adSpend is keyed by local date: { 'YYYY-MM-DD': amount }
+function dayKey(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function getTotalAdSpend() { return Object.values(state.adSpend || {}).reduce((s, v) => s + Number(v || 0), 0); }
+
+// Exact sum of daily ad-spend entries whose date falls within [from, to].
+function adSpendForRange(from, to) {
+  if (!from || !to) return 0;
+  const f = new Date(from), t = new Date(to);
+  return Object.entries(state.adSpend || {}).reduce((sum, [day, amt]) => {
+    const d = new Date(day + 'T00:00:00'); // local midnight of the logged day
+    return (d >= f && d <= t) ? sum + Number(amt || 0) : sum;
+  }, 0);
+}
+
+function formatMonthKey(key) {
+  const [y, m] = key.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-PH', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1));
+}
+function formatDayKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(y, m - 1, d));
+}
+
 function getAccountById(id) { return state.accounts.find(a => a.id === id) || null; }
 function getExpiresAt(a) { return new Date(new Date(a.purchasedAt).getTime() + a.expiryHours * 3600000); }
 function hoursLeftLabel(a) { const hrs = (getExpiresAt(a).getTime() - Date.now()) / 3600000; return hrs <= 0 ? 'Expired' : `${Math.floor(hrs)}h left`; }
@@ -1416,10 +1558,10 @@ function escapeAttr(v) { return escapeHtml(v); }
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : { accounts: [], orders: [], pendingOrders: [] };
-    parsed.accounts ||= []; parsed.orders ||= []; parsed.pendingOrders ||= [];
+    const parsed = raw ? JSON.parse(raw) : { accounts: [], orders: [], pendingOrders: [], adSpend: {} };
+    parsed.accounts ||= []; parsed.orders ||= []; parsed.pendingOrders ||= []; parsed.adSpend ||= {};
     return parsed;
-  } catch { return { accounts: [], orders: [] }; }
+  } catch { return { accounts: [], orders: [], pendingOrders: [], adSpend: {} }; }
 }
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
