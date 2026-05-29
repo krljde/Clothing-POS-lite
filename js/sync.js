@@ -12,7 +12,8 @@ import {
   createUserWithEmailAndPassword, sendPasswordResetEmail, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, onSnapshot, enableIndexedDbPersistence
+  initializeFirestore, doc, getDoc, setDoc, onSnapshot,
+  persistentLocalCache, persistentMultipleTabManager
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 /* ─── Firebase project config (shein-pos) ──────────────────── */
@@ -27,8 +28,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
-enableIndexedDbPersistence(db).catch(() => {}); // offline cache; ignored if multi-tab/unsupported
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 
 /* ─── DOM refs ─────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -53,14 +55,30 @@ let syncReady = false;     // gate pushes until initial load/seed completes
 let pendingShopName = null;
 let pushTimer = null;
 let wasSignedIn = false;   // so we only wipe local data on a real logout, never on first load
+let lastPushedJson = null;
+let pushSeq = 0;
 
 /* ─── Cloud push (called by app.js saveState) ──────────────── */
 window.POSCloud = {
   push(state) {
     if (!syncReady || !docRef) return;
     clearTimeout(pushTimer);
+    const payload = toPlain(state);
+    const payloadJson = comparableJson(payload);
+    const seq = ++pushSeq;
+    lastPushedJson = payloadJson;
+    setSyncStatus(navigator.onLine ? 'saving' : 'offline');
     pushTimer = setTimeout(() => {
-      setDoc(docRef, toPlain(state)).catch(err => console.warn('cloud push failed:', err));
+      setDoc(docRef, payload)
+        .then(() => {
+          if (seq === pushSeq) setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+        })
+        .catch(err => {
+          if (seq !== pushSeq) return;
+          console.warn('cloud push failed:', err);
+          setSyncStatus('error');
+          window.POS?.showToast?.('Cloud sync failed. Your local copy is still saved.', 'error');
+        });
     }, 500);
   }
 };
@@ -74,6 +92,31 @@ function toPlain(s) {
     updatedAt: Date.now()
   };
 }
+
+function comparableJson(data = {}) {
+  return JSON.stringify({
+    shopName: data.shopName || '',
+    accounts: Array.isArray(data.accounts) ? data.accounts : [],
+    orders: Array.isArray(data.orders) ? data.orders : [],
+    adSpend: data.adSpend && typeof data.adSpend === 'object' ? data.adSpend : {}
+  });
+}
+
+function currentComparableJson() {
+  return comparableJson(window.POS?.getState?.() || {});
+}
+
+function setSyncStatus(state, message = '') {
+  window.POS?.setSyncStatus?.(state, message);
+}
+
+function updateConnectivityStatus() {
+  if (!docRef) return;
+  setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+}
+
+window.addEventListener('online', updateConnectivityStatus);
+window.addEventListener('offline', () => setSyncStatus('offline'));
 
 /* ─── Auth UI ──────────────────────────────────────────────── */
 function setMode(m) {
@@ -149,6 +192,9 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) {
     if (unsub) { unsub(); unsub = null; }
     docRef = null; syncReady = false;
+    clearTimeout(pushTimer);
+    lastPushedJson = null;
+    pushSeq++;
     // Only wipe local data on an actual logout — NOT on the initial page-load null event
     // (that would destroy a not-yet-migrated user's localStorage before they sign in).
     if (wasSignedIn) window.POS.clearState();
@@ -156,6 +202,8 @@ onAuthStateChanged(auth, async (user) => {
     setMode('login');   // always return the overlay to Log in mode
     busy(false);
     overlay.hidden = false;
+    setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+    requestAnimationFrame(() => emailEl.focus({ preventScroll: true }));
     return;
   }
 
@@ -164,28 +212,44 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      window.POS.applyRemoteState(snap.data());
+      window.POS.applyRemoteState(snap.data(), { force: true });
     } else {
       // New account → start blank (plus the chosen shop name). We deliberately do NOT seed from
       // local data, so a shared device never leaks one user's data into another's new account.
       const seed = { shopName: pendingShopName || '', accounts: [], orders: [], adSpend: {}, updatedAt: Date.now() };
       await setDoc(docRef, seed);
-      window.POS.applyRemoteState(seed);
+      window.POS.applyRemoteState(seed, { force: true });
     }
   } catch (err) {
     console.warn('initial sync failed:', err);
     showMsg('Could not load your data — check your connection.');
+    setSyncStatus('error');
   }
   pendingShopName = null;
   syncReady = true;
   busy(false);
   overlay.hidden = true;
+  setSyncStatus(navigator.onLine ? 'saved' : 'offline');
 
   // Realtime updates from this account's other devices
-  unsub = onSnapshot(docRef, (snap) => {
-    if (snap.metadata.hasPendingWrites) return; // skip our own write echo
-    if (snap.exists()) window.POS.applyRemoteState(snap.data());
-  }, (err) => console.warn('snapshot error:', err));
+  unsub = onSnapshot(docRef, { includeMetadataChanges: true }, (snap) => {
+    if (snap.metadata.hasPendingWrites) {
+      setSyncStatus(navigator.onLine ? 'saving' : 'offline');
+      return;
+    }
+    if (!navigator.onLine || snap.metadata.fromCache) setSyncStatus('offline');
+    if (!snap.exists()) return;
+    const incomingJson = comparableJson(snap.data());
+    if (incomingJson === lastPushedJson || incomingJson === currentComparableJson()) {
+      setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+      return;
+    }
+    window.POS.applyRemoteState(snap.data());
+  }, (err) => {
+    console.warn('snapshot error:', err);
+    setSyncStatus('error');
+    window.POS?.showToast?.('Realtime sync stopped. Refresh or check your connection.', 'error');
+  });
 });
 
 setMode('login');

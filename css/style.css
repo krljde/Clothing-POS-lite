@@ -29,6 +29,7 @@
   --radius-xl:    28px;
   --shadow-sm:    0 1px 3px rgba(42,31,26,.06), 0 1px 2px rgba(42,31,26,.04);
   --shadow:       0 4px 16px rgba(42,31,26,.08), 0 1px 4px rgba(42,31,26,.04);
+  --shadow-md:    0 8px 24px rgba(42,31,26,.11), 0 2px 8px rgba(42,31,26,.05);
   --shadow-lg:    0 12px 40px rgba(42,31,26,.14), 0 4px 12px rgba(42,31,26,.06);
   --t:            160ms cubic-bezier(.4,0,.2,1);
 }
@@ -389,6 +390,31 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ─── Topbar actions ──────────────────────────────────── */
 .topbar-actions { display: flex; gap: 6px; align-items: center; }
+
+.sync-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2); font-size: 12px; font-weight: 700;
+  white-space: nowrap;
+}
+.sync-status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 3px var(--green-soft);
+  flex-shrink: 0;
+}
+.sync-status[data-state="saving"] .sync-status-dot,
+.sync-status[data-state="pending"] .sync-status-dot {
+  background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft);
+}
+.sync-status[data-state="offline"] .sync-status-dot {
+  background: var(--text-3); box-shadow: 0 0 0 3px var(--surface-2);
+}
+.sync-status[data-state="error"] .sync-status-dot {
+  background: var(--red); box-shadow: 0 0 0 3px var(--red-soft);
+}
+.sync-status[data-state="error"] { color: var(--red); }
 
 /* ─── Cog menu ────────────────────────────────────────── */
 .cog-menu { position: relative; }
