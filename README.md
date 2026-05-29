@@ -130,6 +130,7 @@ a custom range adds up the days within it.
 
 ### Hosting
 1. Push to GitHub → enable GitHub Pages → open the site.
+2. When deploying code changes, bump the manual asset version in `index.html` for `css/style.css`, `js/app.js`, and `js/sync.js` (for example `?v=2026-05-30a`) so browsers fetch the latest files without a hard refresh.
 
 ### Firebase (one-time)
 1. Create a project at console.firebase.google.com (free Spark plan).

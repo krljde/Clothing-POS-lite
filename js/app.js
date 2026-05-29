@@ -1,8 +1,13 @@
 /* ─── Constants ───────────────────────────────────────── */
 const STORAGE_KEY = 'shein_pos_lite_v10';
-const LEGACY_KEYS_V9 = ['shein_pos_lite_v9'];
-const LEGACY_KEYS = ['shein_pos_lite_v9','shein_pos_lite_v8','shein_pos_lite_v7','shein_pos_lite_v6','shein_pos_lite_v5','shein_pos_lite_v4','shein_pos_lite_v3','shein_pos_lite_v2','shein_pos_lite_v1'];
 const STATUS_OPTIONS = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
+const SYNC_STATUS_LABELS = {
+  saved: 'Saved',
+  saving: 'Saving...',
+  offline: 'Offline',
+  error: 'Sync error',
+  pending: 'Update waiting'
+};
 
 /* ─── State ───────────────────────────────────────────── */
 const state = loadState();
@@ -12,6 +17,9 @@ let orderFilter = { query: '', status: '' };
 let customerQuery = '';
 let statsRange = { type: 'today', from: null, to: null };
 const adSpendOpenMonths = new Set([dayKey(new Date()).slice(0, 7)]); // months expanded in the Ad Spend Log
+let pendingRemoteState = null;
+let pendingRemoteBaseJson = null;
+let lastFocusedBeforeModal = null;
 
 /* ─── Element refs ────────────────────────────────────── */
 const els = {
@@ -73,10 +81,10 @@ const els = {
   statsSummaryCard: document.getElementById('stats-summary-card'),
   statsBreakdown: document.getElementById('stats-breakdown'),
   statsAdspendCard: document.getElementById('stats-adspend-card'),
+  syncStatus: document.getElementById('sync-status'),
 };
 
 /* ─── Boot ────────────────────────────────────────────── */
-migrateLegacyData();
 bindEvents();
 syncCheckoutGroups();
 render();
@@ -90,12 +98,16 @@ function bindEvents() {
   const moreBtn = document.getElementById('more-tab-btn');
   const moreSheet = document.getElementById('more-sheet');
   const moreBackdrop = document.getElementById('more-sheet-backdrop');
+  moreBtn.setAttribute('aria-haspopup', 'dialog');
+  moreBtn.setAttribute('aria-expanded', 'false');
   function openMoreSheet() {
     moreSheet.hidden = false; moreBackdrop.hidden = false;
+    moreBtn.setAttribute('aria-expanded', 'true');
     requestAnimationFrame(() => { moreSheet.classList.add('visible'); moreBackdrop.classList.add('visible'); });
   }
   function closeMoreSheet() {
     moreSheet.classList.remove('visible'); moreBackdrop.classList.remove('visible');
+    moreBtn.setAttribute('aria-expanded', 'false');
     setTimeout(() => { moreSheet.hidden = true; moreBackdrop.hidden = true; }, 220);
   }
   moreBtn.addEventListener('click', openMoreSheet);
@@ -161,6 +173,7 @@ function bindEvents() {
   document.getElementById('gmail-dot-btn-desktop').addEventListener('click', () => {
     const cogDrop = document.getElementById('cog-dropdown');
     cogDrop.hidden = true;
+    document.getElementById('cog-toggle').setAttribute('aria-expanded', 'false');
     openGmailDotModal();
   });
   document.querySelectorAll('#import-input, #import-input-desktop').forEach(inp => inp.addEventListener('change', (e) => {
@@ -182,6 +195,31 @@ function bindEvents() {
     cogToggle.setAttribute('aria-expanded', 'false');
   });
   cogDropdown.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const openModals = getOpenModals();
+    if (openModals.length) {
+      e.preventDefault();
+      closeModal(openModals.at(-1));
+      return;
+    }
+    if (els.fabMenu.classList.contains('visible')) {
+      e.preventDefault();
+      closeFabMenu();
+      return;
+    }
+    if (!moreSheet.hidden) {
+      e.preventDefault();
+      closeMoreSheet();
+      return;
+    }
+    if (!cogDropdown.hidden) {
+      e.preventDefault();
+      cogDropdown.hidden = true;
+      cogToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('focusout', () => setTimeout(flushPendingRemoteState, 0));
 
   // Order search + filter
   els.orderSearch.addEventListener('input', () => {
@@ -295,13 +333,14 @@ function setView(viewId) {
 
 /* ─── Render All ──────────────────────────────────────── */
 function render() {
+  const profitContext = createProfitContext();
   renderBrand();
-  renderStats();
+  renderStats(profitContext);
   renderCustomers();
-  renderRecentOrders();
-  renderAccounts();
-  renderOrders();
-  if (activeView === 'customers-view') renderCustomerHistory();
+  renderRecentOrders(profitContext);
+  renderAccounts(profitContext);
+  renderOrders(profitContext);
+  if (activeView === 'customers-view') renderCustomerHistory(profitContext);
 }
 
 /* ─── Brand (header shop name) ────────────────────────── */
@@ -311,8 +350,8 @@ function renderBrand() {
 }
 
 /* ─── Stats ───────────────────────────────────────────── */
-function renderStats() {
-  const grossProfit = state.orders.reduce((s, o) => s + getOrderProfit(o), 0);
+function renderStats(profitContext = createProfitContext()) {
+  const grossProfit = state.orders.reduce((s, o) => s + getOrderProfit(o, profitContext), 0);
   const adSpend = getTotalAdSpend();
   const profit = grossProfit - adSpend; // net of all-time ad spend
   const revenue = state.orders.reduce((s, o) => s + (Number(o.totalPrice) || 0), 0);
@@ -334,8 +373,8 @@ function renderCustomers() {
 }
 
 /* ─── Recent Orders (home) ────────────────────────────── */
-function renderRecentOrders() {
-  const groups = getOrderGroups().slice(0, 5);
+function renderRecentOrders(profitContext = createProfitContext()) {
+  const groups = getOrderGroups(profitContext).slice(0, 5);
   if (!groups.length) {
     els.recentOrders.innerHTML = '<p class="empty-note">No orders yet — add your first checkout!</p>';
     return;
@@ -355,6 +394,7 @@ function renderRecentOrders() {
 function renderAccounts() {
   const sort = els.accountSort.value;
   const accounts = [...state.accounts].sort((a, b) => sortAccounts(a, b, sort));
+  const ordersByAccount = groupOrdersByAccount();
   if (!accounts.length) {
     els.accountsList.innerHTML = '<div class="recent-card"><p class="empty-note">No accounts yet — add your first account!</p></div>';
     return;
@@ -362,7 +402,7 @@ function renderAccounts() {
   els.accountsList.innerHTML = accounts.map(account => {
     const info = getAccountStatusInfo(account);
     const title = info.remainingVouchers.length ? `Available: ${info.remainingVouchers.join(', ')}` : info.status;
-    const ordersOnAccount = state.orders.filter(o => o.accountId === account.id);
+    const ordersOnAccount = ordersByAccount.get(account.id) || [];
     const totalRevenue = ordersOnAccount.reduce((s, o) => s + Number(o.totalPrice || 0), 0);
     const totalCheckoutCost = ordersOnAccount.reduce((s, o) => s + Number(o.discountedPrice || 0), 0);
     const totalRefund = ordersOnAccount.reduce((s, o) => s + Number(o.refund || 0), 0);
@@ -415,8 +455,9 @@ function renderAccounts() {
 }
 
 /* ─── Orders (with search + filter) ──────────────────── */
-function renderOrders() {
-  let groups = getOrderGroups();
+function renderOrders(profitContext = createProfitContext()) {
+  const allGroups = getOrderGroups(profitContext);
+  let groups = allGroups;
 
   // Filter by status
   if (orderFilter.status) {
@@ -434,7 +475,7 @@ function renderOrders() {
   }
 
   if (!groups.length) {
-    const hasData = getOrderGroups().length > 0;
+    const hasData = allGroups.length > 0;
     els.ordersList.innerHTML = `
       <div class="no-results">
         <div class="no-results-icon">${hasData ? '🔍' : '📦'}</div>
@@ -444,7 +485,7 @@ function renderOrders() {
     return;
   }
 
-  const total = getOrderGroups().length;
+  const total = allGroups.length;
   const shown = groups.length;
   const countLabel = (orderFilter.query || orderFilter.status) && shown < total
     ? `<p class="result-count">Showing ${shown} of ${total} orders</p>`
@@ -484,8 +525,8 @@ function renderOrders() {
 }
 
 /* ─── Customer History View ───────────────────────────── */
-function renderCustomerHistory() {
-  const allGroups = getOrderGroups();
+function renderCustomerHistory(profitContext = createProfitContext()) {
+  const allGroups = getOrderGroups(profitContext);
   // Build per-customer summaries
   const customerMap = new Map();
   allGroups.forEach(g => {
@@ -558,12 +599,12 @@ function renderCustomerHistory() {
 
 /* ─── Customer History Modal ──────────────────────────── */
 function openCustomerModal(customerName) {
-  const allGroups = getOrderGroups().filter(g => g.checkouts[0]?.customerName === customerName);
+  const profitContext = createProfitContext();
+  const allGroups = getOrderGroups(profitContext).filter(g => g.checkouts[0]?.customerName === customerName);
   if (!allGroups.length) return;
 
   const totalProfit = allGroups.reduce((s, g) => s + g.totalProfit, 0);
   const totalRevenue = allGroups.reduce((s, g) => s + g.checkouts.reduce((ss, c) => ss + Number(c.totalPrice||0), 0), 0);
-  const totalItems = allGroups.reduce((s, g) => s + g.totalItems, 0);
   const totalCheckouts = allGroups.reduce((s, g) => s + g.checkouts.length, 0);
 
   els.customerModalTitle.textContent = customerName;
@@ -780,7 +821,8 @@ function onAddOrderBatch(e) {
 /* ─── Batch Modal ─────────────────────────────────────── */
 function openBatchModal(batchId) {
   currentBatchId = batchId;
-  const group = getOrderGroups().find(g => g.batchId === batchId);
+  const profitContext = createProfitContext();
+  const group = getOrderGroups(profitContext).find(g => g.batchId === batchId);
   if (!group) return;
   els.batchModalTitle.textContent = group.customerLabel;
   const revenue = group.checkouts.reduce((s, i) => s + (Number(i.totalPrice) || 0), 0);
@@ -794,16 +836,17 @@ function openBatchModal(batchId) {
       <div class="batch-metric"><span class="field-label">Profit</span><span class="field-main" style="${group.totalProfit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(group.totalProfit)}</span></div>
     </div>
   `;
-  renderBatchCheckouts(group.checkouts);
+  renderBatchCheckouts(group.checkouts, profitContext);
   openModal(els.batchModal);
 }
 
-function renderBatchCheckouts(checkouts) {
+function renderBatchCheckouts(checkouts, profitContext = createProfitContext()) {
   els.batchCheckouts.innerHTML = checkouts.map(order => {
     const account = getAccountById(order.accountId);
     const accountCost = Number(account?.cost || 0);
-    const ordersOnAccount = state.orders.filter(x => x.accountId === order.accountId).length || 1;
+    const ordersOnAccount = profitContext.orderCountByAccount.get(order.accountId) || 1;
     const costShare = accountCost / ordersOnAccount;
+    const profit = getOrderProfit(order, profitContext);
     return `
     <article class="checkout-detail-card">
       <div class="checkout-detail-grid">
@@ -825,7 +868,7 @@ function renderBatchCheckouts(checkouts) {
           <span class="field-main" style="color:var(--text-3)">−${peso(costShare)}</span>
           <span class="field-sub">${peso(accountCost)} ÷ ${ordersOnAccount} order${ordersOnAccount !== 1 ? 's' : ''}</span>
         </div>
-        <div><span class="field-label">Profit</span><span class="field-main" style="${getOrderProfit(order) < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(getOrderProfit(order))}</span></div>
+        <div><span class="field-label">Profit</span><span class="field-main" style="${profit < 0 ? 'color:#c0392b' : 'color:var(--green)'}">${peso(profit)}</span></div>
       </div>
       <!-- Quick status buttons -->
       <div class="quick-status-bar">
@@ -946,7 +989,6 @@ function deleteOrder(orderId) {
 /* ─── Statistics View ─────────────────────────────────── */
 function getStatsDateRange() {
   const now = new Date();
-  const ymd = d => d.toISOString().slice(0, 10);
   const startOf = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const endOf   = d => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
   switch (statsRange.type) {
@@ -984,9 +1026,9 @@ function getStatsDateRange() {
   }
 }
 
-function calcMetrics(orders) {
+function calcMetrics(orders, profitContext = createProfitContext()) {
   const revenue   = orders.reduce((s, o) => s + Number(o.totalPrice || 0), 0);
-  const profit    = orders.reduce((s, o) => s + getOrderProfit(o), 0);
+  const profit    = orders.reduce((s, o) => s + getOrderProfit(o, profitContext), 0);
   const items     = orders.reduce((s, o) => s + Number(o.itemCount || 0), 0);
   const checkouts = orders.length;
   const batches   = new Set(orders.map(o => o.batchId)).size;
@@ -1004,12 +1046,13 @@ function deltaArrow(curr, prev) {
 
 function renderStats_view() {
   if (!els.statsKpiGrid) return;
+  const profitContext = createProfitContext();
   const { from, to, label, prevFrom, prevTo } = getStatsDateRange();
   const inRange = (o, f, t) => { const d = new Date(o.createdAt); return d >= f && d <= t; };
   const curr = state.orders.filter(o => inRange(o, from, to));
   const prev = state.orders.filter(o => inRange(o, prevFrom, prevTo));
-  const cm = calcMetrics(curr);
-  const pm = calcMetrics(prev);
+  const cm = calcMetrics(curr, profitContext);
+  const pm = calcMetrics(prev, profitContext);
 
   // Ad spend attributable to each range, and net profit (gross − ad spend)
   const adCurr = adSpendForRange(from, to);
@@ -1081,7 +1124,7 @@ function renderStats_view() {
       <div>Date</div><div>Revenue</div><div>Profit</div><div>Checkouts</div><div>Items</div>
     </div>
     ${days.map(([day, orders]) => {
-      const m = calcMetrics(orders);
+      const m = calcMetrics(orders, profitContext);
       const d = new Date(day + 'T00:00:00');
       const label = new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
       return `
@@ -1340,16 +1383,68 @@ function showToast(msg, type = '') {
   }, 2800);
 }
 
+function setSyncStatus(status = 'saved', message = '') {
+  if (!els.syncStatus) return;
+  const normalized = SYNC_STATUS_LABELS[status] ? status : 'saved';
+  const label = message || SYNC_STATUS_LABELS[normalized];
+  els.syncStatus.dataset.state = normalized;
+  els.syncStatus.title = label;
+  const textEl = els.syncStatus.querySelector('.sync-status-text');
+  if (textEl) textEl.textContent = label;
+}
+
 /* ─── Modal helpers ───────────────────────────────────── */
-function openModal(modal) { modal.hidden = false; document.body.classList.add('modal-open'); }
+function getOpenModals() { return [...document.querySelectorAll('.modal')].filter(m => !m.hidden); }
+
+function focusFirstModalField(modal) {
+  const focusable =
+    modal.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])') ||
+    modal.querySelector('button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+  if (focusable) focusable.focus({ preventScroll: true });
+}
+
+function openModal(modal) {
+  if (!modal) return;
+  lastFocusedBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  modal.hidden = false;
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => focusFirstModalField(modal));
+}
+
 function closeModal(modal) {
+  if (!modal) return;
   modal.hidden = true;
-  const allModals = [els.accountModal, els.checkoutModal, els.batchModal, els.editCheckoutModal, els.customerModal, els.adspendModal];
-  if (allModals.every(m => m.hidden)) document.body.classList.remove('modal-open');
+  if (!getOpenModals().length) {
+    document.body.classList.remove('modal-open');
+    if (lastFocusedBeforeModal && document.contains(lastFocusedBeforeModal)) {
+      lastFocusedBeforeModal.focus({ preventScroll: true });
+    }
+    lastFocusedBeforeModal = null;
+    setTimeout(flushPendingRemoteState, 0);
+  }
 }
 
 /* ─── Data helpers ────────────────────────────────────── */
-function getOrderGroups() {
+function createProfitContext() {
+  return { orderCountByAccount: getOrderCountByAccount() };
+}
+
+function getOrderCountByAccount() {
+  const counts = new Map();
+  state.orders.forEach(o => counts.set(o.accountId, (counts.get(o.accountId) || 0) + 1));
+  return counts;
+}
+
+function groupOrdersByAccount() {
+  const groups = new Map();
+  state.orders.forEach(o => {
+    if (!groups.has(o.accountId)) groups.set(o.accountId, []);
+    groups.get(o.accountId).push(o);
+  });
+  return groups;
+}
+
+function getOrderGroups(profitContext = createProfitContext()) {
   const map = new Map();
   [...state.orders].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach(o => {
     if (!map.has(o.batchId)) map.set(o.batchId, []);
@@ -1362,7 +1457,7 @@ function getOrderGroups() {
       batchId, checkouts: sorted,
       customerLabel: first.customerTag ? `${first.customerName} · ${first.customerTag}` : first.customerName,
       orderDate: first.createdAt,
-      totalProfit: sorted.reduce((s, i) => s + getOrderProfit(i), 0),
+      totalProfit: sorted.reduce((s, i) => s + getOrderProfit(i, profitContext), 0),
       totalItems: sorted.reduce((s, i) => s + Number(i.itemCount || 0), 0),
       status: summarizeGroupStatus(sorted)
     };
@@ -1377,10 +1472,10 @@ function summarizeGroupStatus(checkouts) {
   return 'Processing';
 }
 
-function getOrderProfit(o) {
+function getOrderProfit(o, profitContext = createProfitContext()) {
   const account = getAccountById(o.accountId);
   const accountCost = Number(account?.cost || 0);
-  const ordersOnAccount = state.orders.filter(x => x.accountId === o.accountId).length || 1;
+  const ordersOnAccount = profitContext.orderCountByAccount.get(o.accountId) || 1;
   const costShare = accountCost / ordersOnAccount;
   return Number(o.totalPrice||0) - Number(o.discountedPrice||0) + Number(o.refund||0) - costShare;
 }
@@ -1492,6 +1587,57 @@ function clampNumber(v, min, fallback) { const n = Number(v); return Number.isFi
 function escapeHtml(v) { return String(v||'').replace(/[&<>"']/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
 function escapeAttr(v) { return escapeHtml(v); }
 
+/* ─── Remote state safety ─────────────────────────────── */
+function normalizeCloudState(data = {}) {
+  return {
+    shopName: data.shopName || '',
+    accounts: Array.isArray(data.accounts) ? data.accounts : [],
+    orders: Array.isArray(data.orders) ? data.orders : [],
+    adSpend: data.adSpend && typeof data.adSpend === 'object' ? data.adSpend : {}
+  };
+}
+
+function comparableStateJson(data) { return JSON.stringify(normalizeCloudState(data)); }
+function currentStateJson() { return comparableStateJson(state); }
+
+function isEditingElement(el = document.activeElement) {
+  return el instanceof HTMLElement &&
+    el !== document.body &&
+    (el.matches('input, select, textarea') || el.isContentEditable);
+}
+
+function shouldDeferRemoteState() {
+  return document.body.classList.contains('modal-open') || isEditingElement();
+}
+
+function applyRemoteStateNow(data) {
+  const next = normalizeCloudState(data);
+  if (comparableStateJson(next) === currentStateJson()) return false;
+  state.shopName = next.shopName;
+  state.accounts = next.accounts;
+  state.orders = next.orders;
+  state.adSpend = next.adSpend;
+  cacheState();
+  render();
+  if (activeView === 'stats-view') renderStats_view();
+  return true;
+}
+
+function flushPendingRemoteState() {
+  if (!pendingRemoteState || shouldDeferRemoteState()) return;
+  const next = pendingRemoteState;
+  const baseJson = pendingRemoteBaseJson;
+  pendingRemoteState = null;
+  pendingRemoteBaseJson = null;
+  if (baseJson && currentStateJson() !== baseJson) {
+    setSyncStatus('saved');
+    showToast('Remote update skipped after local changes', 'error');
+    return;
+  }
+  applyRemoteStateNow(next);
+  setSyncStatus('saved');
+}
+
 /* ─── Persistence ─────────────────────────────────────── */
 function loadState() {
   try {
@@ -1508,16 +1654,22 @@ function saveState() { cacheState(); window.POSCloud?.push(state); } // local ca
 window.POS = {
   getState: () => state,
   // Replace local state with the cloud snapshot (cache only — no re-push, avoids echo loops)
-  applyRemoteState(data) {
+  applyRemoteState(data, options = {}) {
     if (!data) return;
-    state.shopName = data.shopName || '';
-    state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
-    state.orders = Array.isArray(data.orders) ? data.orders : [];
-    state.adSpend = data.adSpend && typeof data.adSpend === 'object' ? data.adSpend : {};
-    cacheState();
-    render();
-    if (activeView === 'stats-view') renderStats_view();
+    const next = normalizeCloudState(data);
+    if (comparableStateJson(next) === currentStateJson()) return;
+    if (!options.force && shouldDeferRemoteState()) {
+      pendingRemoteState = next;
+      pendingRemoteBaseJson ||= currentStateJson();
+      setSyncStatus('pending');
+      return;
+    }
+    pendingRemoteState = null;
+    pendingRemoteBaseJson = null;
+    applyRemoteStateNow(next);
   },
+  setSyncStatus,
+  showToast,
   setShopName(name) {
     state.shopName = String(name || '').trim();
     saveState();
@@ -1530,19 +1682,3 @@ window.POS = {
     render();
   }
 };
-
-function migrateLegacyData() {
-  if (state.accounts.length || state.orders.length) return;
-  for (const key of LEGACY_KEYS) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const parsed = JSON.parse(raw);
-      if (parsed?.accounts || parsed?.orders) {
-        state.accounts = parsed.accounts || [];
-        state.orders = parsed.orders || [];
-        saveState(); break;
-      }
-    } catch {}
-  }
-}
