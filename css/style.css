@@ -235,6 +235,32 @@ button { cursor: pointer; border: none; background: none; }
   .fab-menu { right: 14px; bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 60px); }
 }
 
+/* ─── Auth overlay ────────────────────────────────────── */
+.auth-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; padding: 16px;
+  background: var(--bg, #f5f0ec);
+}
+.auth-overlay[hidden], .auth-overlay.signed-in { display: none; }
+.auth-card {
+  width: 100%; max-width: 380px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  padding: 28px 24px;
+}
+.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.auth-brand .brand-eyebrow { display: block; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+.auth-brand-name { display: block; font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: var(--text); }
+.auth-title { font-family: 'DM Serif Display', serif; font-size: 1.5rem; margin: 0 0 4px; }
+.auth-sub { font-size: 13px; color: var(--text-3); margin: 0 0 18px; }
+.auth-submit { width: 100%; margin-top: 6px; }
+.auth-message { font-size: 13px; margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; }
+.auth-message.error { color: #c0392b; background: #fdecea; }
+.auth-message.info { color: #1d6b3a; background: #e8f6ee; }
+.auth-links { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.auth-link { background: none; border: none; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); padding: 4px 0; }
+.auth-link:hover { text-decoration: underline; }
+
 /* ─── Modals ──────────────────────────────────────────── */
 .modal { position: fixed; inset: 0; display: grid; place-items: center; z-index: 100; padding: 12px; }
 #batch-modal { z-index: 110; }
@@ -280,6 +306,7 @@ button { cursor: pointer; border: none; background: none; }
 .voucher-option input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
 .voucher-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group[hidden] { display: none; } /* let the hidden attr actually hide (e.g. signup-only Shop Name) */
 .form-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .form-input, .form-select {
   width: 100%; height: 44px; padding: 0 13px;

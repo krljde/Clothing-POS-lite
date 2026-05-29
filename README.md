@@ -116,23 +116,39 @@ a custom range adds up the days within it.
 
 ---
 
-## Storage
+## Accounts & cloud sync
 
-- uses browser localStorage
-- no backend
-
-### Important
-- data is device-based
-- clearing browser data will remove records
-- use one main device
+- **Sign up / log in** with email + password (set a **Shop name** at sign-up — it becomes the header title).
+- Each login has its **own private data**, synced in **realtime across that account's devices**.
+- Data lives in **Firebase** (`users/{uid}` in Firestore); **localStorage** is kept as an offline cache.
+- Per-user security rules mean **no account can see another account's data**.
+- **Log out** from the ⚙ menu (desktop) or **More** sheet (mobile).
+- Migrating existing data into a new account: **⚙ → Export backup**, sign up, then **⚙ → Import backup**.
 
 ---
 
 ## Setup
 
-1. Upload to GitHub
-2. Enable GitHub Pages
-3. Open the site
+### Hosting
+1. Push to GitHub → enable GitHub Pages → open the site.
+
+### Firebase (one-time)
+1. Create a project at console.firebase.google.com (free Spark plan).
+2. **Authentication → Sign-in method →** enable **Email/Password**.
+3. **Firestore Database → Create** (Production mode, region `asia-southeast1`).
+4. **Firestore → Rules →** restrict to per-user access, then Publish:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{uid} {
+         allow read, write: if request.auth != null && request.auth.uid == uid;
+       }
+     }
+   }
+   ```
+5. **Authentication → Settings → Authorized domains →** add your Pages domain (e.g. `krljde.github.io`).
+6. **Project settings → Your apps → Web →** copy `firebaseConfig` into the marked block in `js/sync.js`.
 
 ---
 

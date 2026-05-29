@@ -317,6 +317,7 @@ function setView(viewId) {
 
 /* ─── Render All ──────────────────────────────────────── */
 function render() {
+  renderBrand();
   renderStats();
   renderCustomers();
   renderRecentOrders();
@@ -324,6 +325,12 @@ function render() {
   renderOrders();
   renderPendingOrders();
   if (activeView === 'customers-view') renderCustomerHistory();
+}
+
+/* ─── Brand (header shop name) ────────────────────────── */
+function renderBrand() {
+  const el = document.querySelector('.brand-name');
+  if (el) el.textContent = state.shopName || 'My Shop';
 }
 
 /* ─── Stats ───────────────────────────────────────────── */
@@ -1617,12 +1624,41 @@ function escapeAttr(v) { return escapeHtml(v); }
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : { accounts: [], orders: [], pendingOrders: [], adSpend: {} };
-    parsed.accounts ||= []; parsed.orders ||= []; parsed.pendingOrders ||= []; parsed.adSpend ||= {};
+    const parsed = raw ? JSON.parse(raw) : { shopName: '', accounts: [], orders: [], pendingOrders: [], adSpend: {} };
+    parsed.shopName ||= ''; parsed.accounts ||= []; parsed.orders ||= []; parsed.pendingOrders ||= []; parsed.adSpend ||= {};
     return parsed;
-  } catch { return { accounts: [], orders: [], pendingOrders: [], adSpend: {} }; }
+  } catch { return { shopName: '', accounts: [], orders: [], pendingOrders: [], adSpend: {} }; }
 }
-function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function cacheState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function saveState() { cacheState(); window.POSCloud?.push(state); } // local cache + debounced cloud push
+
+/* ─── Cloud sync hooks (used by js/sync.js) ───────────── */
+window.POS = {
+  getState: () => state,
+  // Replace local state with the cloud snapshot (cache only — no re-push, avoids echo loops)
+  applyRemoteState(data) {
+    if (!data) return;
+    state.shopName = data.shopName || '';
+    state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    state.orders = Array.isArray(data.orders) ? data.orders : [];
+    state.pendingOrders = Array.isArray(data.pendingOrders) ? data.pendingOrders : [];
+    state.adSpend = data.adSpend && typeof data.adSpend === 'object' ? data.adSpend : {};
+    cacheState();
+    render();
+    if (activeView === 'stats-view') renderStats_view();
+  },
+  setShopName(name) {
+    state.shopName = String(name || '').trim();
+    saveState();
+    renderBrand();
+  },
+  // On logout: wipe local copy so a shared device doesn't leak the previous user's data
+  clearState() {
+    state.shopName = ''; state.accounts = []; state.orders = []; state.pendingOrders = []; state.adSpend = {};
+    localStorage.removeItem(STORAGE_KEY);
+    render();
+  }
+};
 
 function migrateLegacyData() {
   if (state.accounts.length || state.orders.length) return;
