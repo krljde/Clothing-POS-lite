@@ -82,17 +82,21 @@ const els = {
   statsBreakdown: document.getElementById('stats-breakdown'),
   statsAdspendCard: document.getElementById('stats-adspend-card'),
   syncStatus: document.getElementById('sync-status'),
+  adminPanelBtn: document.getElementById('admin-panel-btn'),
+  adminPanelBtnDesktop: document.getElementById('admin-panel-btn-desktop'),
 };
 
 /* ─── Boot ────────────────────────────────────────────── */
 bindEvents();
 syncCheckoutGroups();
 render();
+openViewFromHash();
 
 /* ─── Event Binding ───────────────────────────────────── */
 function bindEvents() {
   els.navBtns.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.viewTarget)));
   els.tabBtns.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.viewTarget)));
+  window.addEventListener('hashchange', openViewFromHash);
 
   // More sheet (mobile)
   const moreBtn = document.getElementById('more-tab-btn');
@@ -170,6 +174,16 @@ function bindEvents() {
 
   // Export / Import
   document.getElementById('export-btn-desktop').addEventListener('click', exportBackup);
+  els.adminPanelBtnDesktop?.addEventListener('click', () => {
+    const cogDrop = document.getElementById('cog-dropdown');
+    if (cogDrop) cogDrop.hidden = true;
+    document.getElementById('cog-toggle').setAttribute('aria-expanded', 'false');
+    setView('admin-view');
+  });
+  els.adminPanelBtn?.addEventListener('click', () => {
+    closeMoreSheet();
+    setView('admin-view');
+  });
   document.getElementById('gmail-dot-btn-desktop').addEventListener('click', () => {
     const cogDrop = document.getElementById('cog-dropdown');
     cogDrop.hidden = true;
@@ -329,6 +343,12 @@ function setView(viewId) {
   els.tabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.viewTarget === viewId));
   if (viewId === 'customers-view') renderCustomerHistory();
   if (viewId === 'stats-view') renderStats_view();
+  window.dispatchEvent(new CustomEvent('pos:viewchange', { detail: { viewId } }));
+}
+
+function openViewFromHash() {
+  const viewId = window.location.hash.slice(1);
+  if (viewId && els.views.some(v => v.id === viewId)) setView(viewId);
 }
 
 /* ─── Render All ──────────────────────────────────────── */
@@ -1393,6 +1413,14 @@ function setSyncStatus(status = 'saved', message = '') {
   if (textEl) textEl.textContent = label;
 }
 
+function setAdminMode(isAdmin) {
+  const enabled = Boolean(isAdmin);
+  window.POS.isAdmin = enabled;
+  if (els.adminPanelBtn) els.adminPanelBtn.hidden = !enabled;
+  if (els.adminPanelBtnDesktop) els.adminPanelBtnDesktop.hidden = !enabled;
+  window.dispatchEvent(new CustomEvent('pos:adminchange', { detail: { isAdmin: enabled } }));
+}
+
 /* ─── Modal helpers ───────────────────────────────────── */
 function getOpenModals() { return [...document.querySelectorAll('.modal')].filter(m => !m.hidden); }
 
@@ -1652,6 +1680,7 @@ function saveState() { cacheState(); window.POSCloud?.push(state); } // local ca
 
 /* ─── Cloud sync hooks (used by js/sync.js) ───────────── */
 window.POS = {
+  isAdmin: false,
   getState: () => state,
   // Replace local state with the cloud snapshot (cache only — no re-push, avoids echo loops)
   applyRemoteState(data, options = {}) {
@@ -1669,6 +1698,8 @@ window.POS = {
     applyRemoteStateNow(next);
   },
   setSyncStatus,
+  setAdminMode,
+  setView,
   showToast,
   setShopName(name) {
     state.shopName = String(name || '').trim();
