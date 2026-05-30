@@ -913,6 +913,7 @@ function openEditCheckoutModal(orderId) {
   const form = els.editOrderForm;
   form.reset();
   form.orderId.value = order.id;
+  form.orderDate.value = localDateInputValue(order.createdAt);
   form.customerName.value = order.customerName;
   form.customerTag.value = order.customerTag || '';
   form.itemCount.value = order.itemCount;
@@ -945,6 +946,16 @@ function onSaveCheckoutEdit(e) {
 
   if (order.customerName !== customerName || (order.customerTag || '') !== customerTag) {
     renameBatch(order.batchId, customerName, customerTag);
+  }
+  const newDay = String(form.get('orderDate') || '').trim();
+  if (newDay) {
+    const base = new Date(order.createdAt);
+    const [y, m, d] = newDay.split('-').map(Number);
+    base.setFullYear(y, m - 1, d);
+    const nextCreatedAt = base.toISOString();
+    state.orders
+      .filter(o => o.batchId === order.batchId)
+      .forEach(o => { o.createdAt = nextCreatedAt; });
   }
   order.itemCount = clampNumber(form.get('itemCount'), 1, 1);
   order.accountId = accountId;
@@ -1533,6 +1544,13 @@ function formatMonthKey(key) {
 function formatDayKey(key) {
   const [y, m, d] = key.split('-').map(Number);
   return new Intl.DateTimeFormat('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(y, m - 1, d));
+}
+
+// Local YYYY-MM-DD for date inputs, matching formatDate's local display.
+function localDateInputValue(v) {
+  const d = new Date(v);
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
 }
 
 function getAccountById(id) { return state.accounts.find(a => a.id === id) || null; }
