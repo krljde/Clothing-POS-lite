@@ -31,6 +31,8 @@ const auth = getAuth(app);
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
+const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
+window.POSAdmin = { db, auth, isAdmin: false, user: null };
 
 /* ─── DOM refs ─────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -86,6 +88,7 @@ window.POSCloud = {
 function toPlain(s) {
   return {
     shopName: s.shopName || '',
+    email: auth.currentUser?.email || '',
     accounts: s.accounts || [],
     orders: s.orders || [],
     adSpend: s.adSpend || {},
@@ -195,6 +198,9 @@ onAuthStateChanged(auth, async (user) => {
     clearTimeout(pushTimer);
     lastPushedJson = null;
     pushSeq++;
+    window.POSAdmin.isAdmin = false;
+    window.POSAdmin.user = null;
+    window.POS?.setAdminMode?.(false);
     // Only wipe local data on an actual logout — NOT on the initial page-load null event
     // (that would destroy a not-yet-migrated user's localStorage before they sign in).
     if (wasSignedIn) window.POS.clearState();
@@ -208,15 +214,21 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   wasSignedIn = true;
+  const isAdmin = ADMIN_UIDS.has(user.uid);
+  window.POSAdmin.isAdmin = isAdmin;
+  window.POSAdmin.user = user;
+  window.POS?.setAdminMode?.(isAdmin);
   docRef = doc(db, 'users', user.uid);
   try {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      window.POS.applyRemoteState(snap.data(), { force: true });
+      const data = snap.data();
+      window.POS.applyRemoteState(data, { force: true });
+      if (!data.email && user.email) setDoc(docRef, { email: user.email }, { merge: true }).catch(() => {});
     } else {
       // New account → start blank (plus the chosen shop name). We deliberately do NOT seed from
       // local data, so a shared device never leaks one user's data into another's new account.
-      const seed = { shopName: pendingShopName || '', accounts: [], orders: [], adSpend: {}, updatedAt: Date.now() };
+      const seed = { shopName: pendingShopName || '', email: user.email || '', accounts: [], orders: [], adSpend: {}, updatedAt: Date.now() };
       await setDoc(docRef, seed);
       window.POS.applyRemoteState(seed, { force: true });
     }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Botique POS</title>
-  <link rel="stylesheet" href="css/style.css?v=2026-05-30a" />
+  <link rel="stylesheet" href="css/style.css?v=2026-05-30b" />
 </head>
 <body>
   <div class="app-shell">
@@ -33,6 +33,7 @@
           <button type="button" class="btn btn-secondary btn-sm cog-toggle" id="cog-toggle" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
           <div class="cog-dropdown" id="cog-dropdown" hidden>
             <button type="button" class="cog-item" id="gmail-dot-btn-desktop">📧 Gmail Dot Generator</button>
+            <button type="button" class="cog-item" id="admin-panel-btn-desktop" hidden>Admin Panel</button>
             <button type="button" class="cog-item" id="export-btn-desktop">⬇ Export backup</button>
             <label class="cog-item" style="cursor:pointer">
               ⬆ Import backup <input type="file" id="import-input-desktop" accept=".json" style="display:none" />
@@ -76,6 +77,9 @@
     <div class="more-sheet" id="more-sheet" hidden>
       <div class="more-sheet-handle"></div>
       <div class="more-sheet-title">Options</div>
+      <button type="button" class="more-sheet-item" id="admin-panel-btn" hidden>
+        <span class="more-sheet-icon">Admin</span> Admin Panel
+      </button>
       <button type="button" class="more-sheet-item" id="gmail-dot-btn">
         <span class="more-sheet-icon">📧</span> Gmail Dot Generator
       </button>
@@ -249,6 +253,22 @@
 
         <!-- Daily breakdown table -->
         <div class="stats-breakdown" id="stats-breakdown"></div>
+      </section>
+
+      <!-- ADMIN -->
+      <section class="view" id="admin-view">
+        <div class="page-header">
+          <div>
+            <span class="page-kicker">Admin</span>
+            <h2>All Users</h2>
+          </div>
+          <div class="page-header-right">
+            <button type="button" id="admin-refresh" class="btn btn-secondary btn-sm">Refresh</button>
+          </div>
+        </div>
+        <div id="admin-user-list" class="admin-user-list">
+          <div class="recent-card"><p class="empty-note">Admin access required.</p></div>
+        </div>
       </section>
 
     </main>
@@ -572,7 +592,8 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=2026-05-30a"></script>
-  <script type="module" src="js/sync.js?v=2026-05-30a"></script>
+  <script src="js/app.js?v=2026-05-30b"></script>
+  <script type="module" src="js/sync.js?v=2026-05-30b"></script>
+  <script type="module" src="js/admin.js?v=2026-05-30b"></script>
 </body>
 </html>

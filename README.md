@@ -121,6 +121,7 @@ a custom range adds up the days within it.
 - Each login has its **own private data**, synced in **realtime across that account's devices**.
 - Data lives in **Firebase** (`users/{uid}` in Firestore); **localStorage** is kept as an offline cache.
 - Per-user security rules mean **no account can see another account's data**.
+- Karl's account has an admin-only export panel for downloading another user's Firestore document as backup JSON. This requires the matching admin read rule below.
 - **Log out** from the ⚙ menu (desktop) or **More** sheet (mobile).
 - Migrating existing data into a new account: **⚙ → Export backup**, sign up, then **⚙ → Import backup**.
 
@@ -130,7 +131,7 @@ a custom range adds up the days within it.
 
 ### Hosting
 1. Push to GitHub → enable GitHub Pages → open the site.
-2. When deploying code changes, bump the manual asset version in `index.html` for `css/style.css`, `js/app.js`, and `js/sync.js` (for example `?v=2026-05-30a`) so browsers fetch the latest files without a hard refresh.
+2. When deploying code changes, bump the manual asset version in `index.html` for `css/style.css`, `js/app.js`, `js/sync.js`, and `js/admin.js` (for example `?v=2026-05-30b`) so browsers fetch the latest files without a hard refresh.
 
 ### Firebase (one-time)
 1. Create a project at console.firebase.google.com (free Spark plan).
@@ -143,6 +144,8 @@ a custom range adds up the days within it.
      match /databases/{database}/documents {
        match /users/{uid} {
          allow read, write: if request.auth != null && request.auth.uid == uid;
+         allow read: if request.auth != null
+           && request.auth.uid in ['tkeqa9jRE9NVRoQQGpLz9WJYYpb2'];
        }
      }
    }
