@@ -1,7 +1,7 @@
 /* ───────────────────────────────────────────────────────────
    Firebase auth + per-user cloud sync (multi-tenant).
-   Each signed-in user's whole dataset lives in Firestore at
-   users/{uid}. localStorage (via app.js) stays as an offline cache.
+   Each signed-in user's whole published dataset lives in Firestore at
+   users/{uid}. Localhost uses devUsers/{uid} so test data stays sandboxed.
    This module owns ALL Firebase + auth-UI logic; app.js exposes
    window.POS hooks and calls window.POSCloud.push() from saveState().
    ─────────────────────────────────────────────────────────── */
@@ -9,7 +9,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, sendPasswordResetEmail, signOut
+  createUserWithEmailAndPassword, sendPasswordResetEmail, signOut,
+  signInAnonymously, setPersistence, browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, doc, getDoc, setDoc, onSnapshot,
@@ -28,10 +29,18 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const authPersistenceReady = setPersistence(auth, browserLocalPersistence).catch(err => {
+  console.warn('auth persistence setup failed:', err);
+});
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
 const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
+const IS_BOOKER_ROUTE = window.location.pathname.toLowerCase().endsWith('/booker.html')
+  || new URLSearchParams(window.location.search).has('booker');
+const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const USER_COLLECTION = IS_LOCAL_DEV_HOST ? 'devUsers' : 'users';
+window.POSFirebase = { app, auth, db, isBookerRoute: IS_BOOKER_ROUTE, isLocalDevHost: IS_LOCAL_DEV_HOST, userCollection: USER_COLLECTION, ensureBookerAuth };
 window.POSAdmin = { db, auth, isAdmin: false, user: null };
 
 /* ─── DOM refs ─────────────────────────────────────────────── */
@@ -48,6 +57,35 @@ const subEl     = $('auth-sub');
 const toggleBtn = $('auth-toggle');
 const forgotBtn = $('auth-forgot');
 const msgEl     = $('auth-message');
+const authLinks = document.querySelector('.auth-links');
+
+if (IS_BOOKER_ROUTE) {
+  if (overlay) overlay.hidden = true;
+  document.querySelector('.app-shell')?.setAttribute('hidden', '');
+} else {
+  showAuthChecking();
+}
+
+async function ensureBookerAuth() {
+  await authPersistenceReady;
+  await waitForAuthReady();
+  if (auth.currentUser) return auth.currentUser;
+  const result = await signInAnonymously(auth);
+  return result.user;
+}
+
+async function waitForAuthReady() {
+  if (typeof auth.authStateReady === 'function') {
+    await auth.authStateReady();
+    return;
+  }
+  await new Promise(resolve => {
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      unsubscribe();
+      resolve();
+    });
+  });
+}
 
 /* ─── Sync state ───────────────────────────────────────────── */
 let mode = 'login';        // 'login' | 'signup'
@@ -110,7 +148,7 @@ function currentComparableJson() {
 }
 
 function setSyncStatus(state, message = '') {
-  window.POS?.setSyncStatus?.(state, message);
+  window.POS?.setSyncStatus?.(state, message || (IS_LOCAL_DEV_HOST && state === 'saved' ? 'Dev sandbox' : ''));
 }
 
 function updateConnectivityStatus() {
@@ -134,6 +172,20 @@ function setMode(m) {
   passEl.autocomplete = signup ? 'new-password' : 'current-password';
   hideMsg();
 }
+function showAuthChecking() {
+  if (!overlay) return;
+  overlay.hidden = false;
+  if (titleEl) titleEl.textContent = 'Checking session';
+  if (subEl) subEl.textContent = 'Restoring your saved login...';
+  if (form) form.hidden = true;
+  authLinks?.setAttribute('hidden', '');
+  hideMsg();
+}
+function showAuthLogin() {
+  if (form) form.hidden = false;
+  authLinks?.removeAttribute('hidden');
+  setMode('login');
+}
 function showMsg(text, type = 'error') { msgEl.textContent = text; msgEl.className = `auth-message ${type}`; msgEl.hidden = false; }
 function hideMsg() { msgEl.hidden = true; }
 function busy(b) { submitBtn.disabled = b; submitBtn.textContent = b ? 'Please wait…' : (mode === 'signup' ? 'Sign up' : 'Log in'); }
@@ -152,9 +204,9 @@ const AUTH_ERRORS = {
 };
 const errMsg = e => AUTH_ERRORS[e?.code] || e?.message || 'Something went wrong.';
 
-toggleBtn.addEventListener('click', () => setMode(mode === 'login' ? 'signup' : 'login'));
+toggleBtn?.addEventListener('click', () => setMode(mode === 'login' ? 'signup' : 'login'));
 
-forgotBtn.addEventListener('click', async () => {
+forgotBtn?.addEventListener('click', async () => {
   const email = emailEl.value.trim();
   if (!email) return showMsg('Enter your email above first, then tap “Forgot password?”.');
   try {
@@ -163,13 +215,14 @@ forgotBtn.addEventListener('click', async () => {
   } catch (e) { showMsg(errMsg(e)); }
 });
 
-form.addEventListener('submit', async (e) => {
+form?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const email = emailEl.value.trim();
   const password = passEl.value;
   if (!email || !password) return showMsg('Enter your email and password.');
   busy(true);
   try {
+    await authPersistenceReady;
     if (mode === 'signup') {
       const shop = shopEl.value.trim();
       if (!shop) { busy(false); return showMsg('Enter a shop name.'); }
@@ -192,6 +245,15 @@ function doLogout() { signOut(auth).catch(() => {}); }
 
 /* ─── Auth state → data sync ───────────────────────────────── */
 onAuthStateChanged(auth, async (user) => {
+  if (IS_BOOKER_ROUTE) {
+    window.POSAdmin.isAdmin = false;
+    window.POSAdmin.user = user || null;
+    window.dispatchEvent(new CustomEvent('pos:authchange', { detail: { user, isAdmin: false, isBookerRoute: true } }));
+    if (overlay) overlay.hidden = true;
+    setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+    return;
+  }
+
   if (!user) {
     if (unsub) { unsub(); unsub = null; }
     docRef = null; syncReady = false;
@@ -205,10 +267,11 @@ onAuthStateChanged(auth, async (user) => {
     // (that would destroy a not-yet-migrated user's localStorage before they sign in).
     if (wasSignedIn) window.POS.clearState();
     form.reset();
-    setMode('login');   // always return the overlay to Log in mode
+    showAuthLogin();    // always return the overlay to Log in mode
     busy(false);
     overlay.hidden = false;
     setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+    window.dispatchEvent(new CustomEvent('pos:authchange', { detail: { user: null, isAdmin: false } }));
     requestAnimationFrame(() => emailEl.focus({ preventScroll: true }));
     return;
   }
@@ -218,7 +281,7 @@ onAuthStateChanged(auth, async (user) => {
   window.POSAdmin.isAdmin = isAdmin;
   window.POSAdmin.user = user;
   window.POS?.setAdminMode?.(isAdmin);
-  docRef = doc(db, 'users', user.uid);
+  docRef = doc(db, USER_COLLECTION, user.uid);
   try {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
@@ -242,6 +305,7 @@ onAuthStateChanged(auth, async (user) => {
   busy(false);
   overlay.hidden = true;
   setSyncStatus(navigator.onLine ? 'saved' : 'offline');
+  window.dispatchEvent(new CustomEvent('pos:authchange', { detail: { user, isAdmin } }));
 
   // Realtime updates from this account's other devices
   unsub = onSnapshot(docRef, { includeMetadataChanges: true }, (snap) => {
@@ -263,5 +327,3 @@ onAuthStateChanged(auth, async (user) => {
     window.POS?.showToast?.('Realtime sync stopped. Refresh or check your connection.', 'error');
   });
 });
-
-setMode('login');

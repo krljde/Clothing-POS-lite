@@ -48,7 +48,8 @@ async function renderAdminPanel(options = {}) {
 
   els.list.innerHTML = '<div class="recent-card"><p class="empty-note">Loading users...</p></div>';
   try {
-    const snap = await getDocs(collection(window.POSAdmin.db, 'users'));
+    const userCollection = window.POSFirebase?.userCollection || 'users';
+    const snap = await getDocs(collection(window.POSAdmin.db, userCollection));
     usersByUid.clear();
     snap.forEach(docSnap => usersByUid.set(docSnap.id, normalizeUserDoc(docSnap.id, docSnap.data())));
     hasLoaded = true;

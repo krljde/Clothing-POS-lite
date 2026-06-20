@@ -1,0 +1,274 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.uid in ['tkeqa9jRE9NVRoQQGpLz9WJYYpb2'];
+    }
+
+    function isBoardCollection(boardCollection) {
+      return boardCollection in ['bookerBoards', 'devBookerBoards'];
+    }
+
+    function isInviteCollection(inviteCollection) {
+      return inviteCollection in ['bookerInvites', 'devBookerInvites'];
+    }
+
+    function isSessionCollection(sessionCollection) {
+      return sessionCollection in ['bookerSessions', 'devBookerSessions'];
+    }
+
+    function inviteCollectionForBoard(boardCollection) {
+      return boardCollection == 'devBookerBoards' ? 'devBookerInvites' : 'bookerInvites';
+    }
+
+    function sessionCollectionForBoard(boardCollection) {
+      return boardCollection == 'devBookerBoards' ? 'devBookerSessions' : 'bookerSessions';
+    }
+
+    function inviteCollectionForSession(sessionCollection) {
+      return sessionCollection == 'devBookerSessions' ? 'devBookerInvites' : 'bookerInvites';
+    }
+
+    function boardCollectionForInvite(inviteCollection) {
+      return inviteCollection == 'devBookerInvites' ? 'devBookerBoards' : 'bookerBoards';
+    }
+
+    function boardPath(boardCollection, boardId) {
+      return /databases/$(database)/documents/$(boardCollection)/$(boardId);
+    }
+
+    function cardPath(boardCollection, boardId, cardId) {
+      return /databases/$(database)/documents/$(boardCollection)/$(boardId)/cards/$(cardId);
+    }
+
+    function sessionPath(boardCollection) {
+      return /databases/$(database)/documents/$(sessionCollectionForBoard(boardCollection))/$(request.auth.uid);
+    }
+
+    function invitePath(inviteCollection, inviteHash) {
+      return /databases/$(database)/documents/$(inviteCollection)/$(inviteHash);
+    }
+
+    function activeBoard(boardCollection, boardId) {
+      return isBoardCollection(boardCollection)
+        && exists(boardPath(boardCollection, boardId))
+        && get(boardPath(boardCollection, boardId)).data.active == true;
+    }
+
+    function ownsBoard(boardCollection, boardId) {
+      return signedIn()
+        && isBoardCollection(boardCollection)
+        && exists(boardPath(boardCollection, boardId))
+        && get(boardPath(boardCollection, boardId)).data.ownerUid == request.auth.uid;
+    }
+
+    function validBookerSession(boardCollection, boardId) {
+      return signedIn()
+        && isBoardCollection(boardCollection)
+        && exists(sessionPath(boardCollection))
+        && get(sessionPath(boardCollection)).data.active == true
+        && get(sessionPath(boardCollection)).data.boardId == boardId
+        && exists(invitePath(inviteCollectionForBoard(boardCollection), get(sessionPath(boardCollection)).data.inviteHash))
+        && get(invitePath(inviteCollectionForBoard(boardCollection), get(sessionPath(boardCollection)).data.inviteHash)).data.active == true;
+    }
+
+    function hasBookerSession(boardCollection, boardId) {
+      return activeBoard(boardCollection, boardId)
+        && validBookerSession(boardCollection, boardId);
+    }
+
+    function sessionBookerName(boardCollection) {
+      return get(sessionPath(boardCollection)).data.bookerName;
+    }
+
+    function cardClaimedBySession(boardCollection, boardId, cardId) {
+      return isBoardCollection(boardCollection)
+        && exists(cardPath(boardCollection, boardId, cardId))
+        && get(cardPath(boardCollection, boardId, cardId)).data.bookerName == sessionBookerName(boardCollection);
+    }
+
+    function validInviteSessionPayload(sessionCollection) {
+      return isSessionCollection(sessionCollection)
+        && request.resource.data.keys().hasOnly([
+          'inviteHash',
+          'boardId',
+          'ownerUid',
+          'bookerName',
+          'active',
+          'createdAt',
+          'lastSeenAt',
+          'updatedAt'
+        ])
+        && request.resource.data.active == true
+        && exists(invitePath(inviteCollectionForSession(sessionCollection), request.resource.data.inviteHash))
+        && get(invitePath(inviteCollectionForSession(sessionCollection), request.resource.data.inviteHash)).data.active == true
+        && request.resource.data.boardId == get(invitePath(inviteCollectionForSession(sessionCollection), request.resource.data.inviteHash)).data.boardId
+        && request.resource.data.ownerUid == get(invitePath(inviteCollectionForSession(sessionCollection), request.resource.data.inviteHash)).data.ownerUid
+        && request.resource.data.bookerName == get(invitePath(inviteCollectionForSession(sessionCollection), request.resource.data.inviteHash)).data.bookerName;
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+
+    match /devUsers/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+
+    match /{inviteCollection}/{inviteHash} {
+      allow get: if isInviteCollection(inviteCollection)
+        && (
+          (signedIn() && resource.data.ownerUid == request.auth.uid)
+          || (signedIn() && resource.data.active == true)
+        );
+      allow list: if isInviteCollection(inviteCollection)
+        && signedIn()
+        && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create: if isInviteCollection(inviteCollection)
+        && signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && exists(boardPath(boardCollectionForInvite(inviteCollection), request.resource.data.boardId))
+        && get(boardPath(boardCollectionForInvite(inviteCollection), request.resource.data.boardId)).data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'ownerUid',
+          'boardId',
+          'bookerName',
+          'active',
+          'createdAt',
+          'updatedAt',
+          'regeneratedFrom'
+        ]);
+      allow update, delete: if isInviteCollection(inviteCollection)
+        && signedIn()
+        && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /{sessionCollection}/{sessionUid} {
+      allow get: if isSessionCollection(sessionCollection)
+        && signedIn()
+        && request.auth.uid == sessionUid;
+      allow list: if false;
+      allow create, update: if isSessionCollection(sessionCollection)
+        && signedIn()
+        && request.auth.uid == sessionUid
+        && validInviteSessionPayload(sessionCollection);
+      allow delete: if isSessionCollection(sessionCollection)
+        && signedIn()
+        && request.auth.uid == sessionUid;
+    }
+
+    match /{boardCollection}/{boardId} {
+      allow get: if isBoardCollection(boardCollection)
+        && (
+          ownsBoard(boardCollection, boardId)
+          || (resource.data.active == true && validBookerSession(boardCollection, boardId))
+        );
+      allow list: if isBoardCollection(boardCollection)
+        && signedIn()
+        && resource.data.ownerUid == request.auth.uid;
+      allow create: if isBoardCollection(boardCollection)
+        && signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if ownsBoard(boardCollection, boardId);
+
+      match /cards/{cardId} {
+        allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+        allow create, delete: if ownsBoard(boardCollection, boardId);
+        allow update: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status',
+              'bookerName',
+              'claimedAt',
+              'accountEmail',
+              'accountPassword',
+              'vouchers',
+              'generatedEmail',
+              'surrenderedEmail',
+              'expiresAt',
+              'surrenderedAt',
+              'updatedAt'
+            ])
+            && request.resource.data.status in ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered']
+            && request.resource.data.bookerName == sessionBookerName(boardCollection)
+            && (
+              !('bookerName' in resource.data)
+              || resource.data.bookerName == ''
+              || resource.data.bookerName == sessionBookerName(boardCollection)
+            )
+          );
+
+        match /checkouts/{checkoutId} {
+          allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+          allow create, delete: if ownsBoard(boardCollection, boardId);
+          allow update: if ownsBoard(boardCollection, boardId)
+            || (
+              hasBookerSession(boardCollection, boardId)
+              && cardClaimedBySession(boardCollection, boardId, cardId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'status',
+                'bookerName',
+                'canFulfill',
+                'unavailableItems',
+                'cannotFulfillReason',
+                'fulfilledAt',
+                'failedAt',
+                'updatedAt'
+              ])
+              && request.resource.data.bookerName == sessionBookerName(boardCollection)
+              && request.resource.data.status in ['fulfilled', 'cannot_fulfill']
+            );
+        }
+      }
+
+      match /bookerLocks/{bookerKey} {
+        allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+        allow delete: if ownsBoard(boardCollection, boardId);
+        allow create: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && request.resource.data.keys().hasOnly([
+              'bookerName',
+              'cardId',
+              'status',
+              'claimedAt',
+              'surrenderedAt',
+              'updatedAt'
+            ])
+            && request.resource.data.bookerName == sessionBookerName(boardCollection)
+            && request.resource.data.status in ['active', 'surrendered']
+          );
+        allow update: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && request.resource.data.keys().hasOnly([
+              'bookerName',
+              'cardId',
+              'status',
+              'claimedAt',
+              'surrenderedAt',
+              'updatedAt'
+            ])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'cardId',
+              'status',
+              'claimedAt',
+              'surrenderedAt',
+              'updatedAt'
+            ])
+            && request.resource.data.bookerName == resource.data.bookerName
+            && request.resource.data.bookerName == sessionBookerName(boardCollection)
+            && request.resource.data.status in ['active', 'surrendered']
+          );
+      }
+    }
+  }
+}
