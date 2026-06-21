@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Botique POS</title>
-  <link rel="stylesheet" href="css/style.css?v=2026-05-31a" />
+  <link rel="stylesheet" href="css/style.css?v=2026-06-21f" />
 </head>
 <body>
   <div class="app-shell">
@@ -22,6 +22,7 @@
         <button class="nav-btn" data-view-target="accounts-view" type="button">Accounts</button>
         <button class="nav-btn" data-view-target="orders-view" type="button">Orders</button>
         <button class="nav-btn" data-view-target="customers-view" type="button">Customers</button>
+        <button class="nav-btn" data-view-target="fulfillment-view" type="button">Fulfillment</button>
         <button class="nav-btn" data-view-target="stats-view" type="button">Stats</button>
       </nav>
       <div class="topbar-actions">
@@ -32,13 +33,13 @@
         <div class="cog-menu" id="cog-menu">
           <button type="button" class="btn btn-secondary btn-sm cog-toggle" id="cog-toggle" title="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
           <div class="cog-dropdown" id="cog-dropdown" hidden>
-            <button type="button" class="cog-item" id="gmail-dot-btn-desktop">📧 Gmail Dot Generator</button>
-            <button type="button" class="cog-item" id="admin-panel-btn-desktop" hidden>Admin Panel</button>
-            <button type="button" class="cog-item" id="export-btn-desktop">⬇ Export backup</button>
+            <button type="button" class="cog-item" id="gmail-dot-btn-desktop"><span class="cog-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span> Gmail Dot Generator</button>
+            <button type="button" class="cog-item" id="admin-panel-btn-desktop" hidden><span class="cog-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> Admin Panel</button>
+            <button type="button" class="cog-item" id="export-btn-desktop"><span class="cog-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></span> Export backup</button>
             <label class="cog-item" style="cursor:pointer">
-              ⬆ Import backup <input type="file" id="import-input-desktop" accept=".json" style="display:none" />
+              <span class="cog-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg></span> Import backup <input type="file" id="import-input-desktop" accept=".json" style="display:none" />
             </label>
-            <button type="button" class="cog-item" id="logout-btn-desktop">🚪 Log out</button>
+            <button type="button" class="cog-item" id="logout-btn-desktop"><span class="cog-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></span> Log out</button>
           </div>
         </div>
       </div>
@@ -78,20 +79,29 @@
       <div class="more-sheet-handle"></div>
       <div class="more-sheet-title">Options</div>
       <button type="button" class="more-sheet-item" id="admin-panel-btn" hidden>
-        <span class="more-sheet-icon">Admin</span> Admin Panel
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+        <span class="more-sheet-label">Admin Panel</span>
       </button>
       <button type="button" class="more-sheet-item" id="gmail-dot-btn">
-        <span class="more-sheet-icon">📧</span> Gmail Dot Generator
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>
+        <span class="more-sheet-label">Gmail Dot Generator</span>
+      </button>
+      <button type="button" class="more-sheet-item" id="fulfillment-panel-btn">
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+        <span class="more-sheet-label">Fulfillment</span>
       </button>
       <button type="button" class="more-sheet-item" id="export-btn">
-        <span class="more-sheet-icon">⬇</span> Export backup
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></span>
+        <span class="more-sheet-label">Export backup</span>
       </button>
       <label class="more-sheet-item" style="cursor:pointer">
-        <span class="more-sheet-icon">⬆</span> Import backup
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg></span>
+        <span class="more-sheet-label">Import backup</span>
         <input type="file" id="import-input" accept=".json" style="display:none" />
       </label>
       <button type="button" class="more-sheet-item" id="logout-btn">
-        <span class="more-sheet-icon">🚪</span> Log out
+        <span class="more-sheet-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></span>
+        <span class="more-sheet-label">Log out</span>
       </button>
     </div>
 
@@ -255,6 +265,30 @@
         <div class="stats-breakdown" id="stats-breakdown"></div>
       </section>
 
+      <!-- FULFILLMENT -->
+      <section class="view" id="fulfillment-view">
+        <div class="page-header">
+          <div>
+            <span class="page-kicker">Bookers</span>
+            <h2>Fulfillment Cards</h2>
+          </div>
+          <div class="page-header-right">
+            <button type="button" id="fulfillment-refresh" class="icon-btn icon-btn-secondary icon-btn-sm" aria-label="Refresh fulfillment" title="Refresh fulfillment">
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M21 12a9 9 0 0 1-15.5 6.2"></path>
+                <path d="M3 12a9 9 0 0 1 15.5-6.2"></path>
+                <path d="M18 3v6h-6"></path>
+                <path d="M6 21v-6h6"></path>
+              </svg>
+              <span class="sr-only">Refresh fulfillment</span>
+            </button>
+          </div>
+        </div>
+        <div id="fulfillment-root" class="fulfillment-root">
+          <div class="recent-card"><p class="empty-note">Loading fulfillment board...</p></div>
+        </div>
+      </section>
+
       <!-- ADMIN -->
       <section class="view" id="admin-view">
         <div class="page-header">
@@ -380,7 +414,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">Expiry Hours *</label>
-              <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="20" required />
+              <input class="form-input" name="expiryHours" type="number" step="1" min="1" max="24" value="24" required />
             </div>
             <div class="form-group span-2">
               <label class="form-label">Available Vouchers *</label>
@@ -391,6 +425,7 @@
                 <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="75%"> 75%</label>
                 <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="70%"> 70%</label>
                 <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="60%"> 60%</label>
+                <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="59%"> 59%</label>
                 <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="57%"> 57%</label>
                 <label class="voucher-option"><input type="checkbox" name="voucher_pick" value="50%"> 50%</label>
               </div>
@@ -596,8 +631,9 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=2026-05-31a"></script>
-  <script type="module" src="js/sync.js?v=2026-05-31a"></script>
-  <script type="module" src="js/admin.js?v=2026-05-31a"></script>
+  <script src="js/app.js?v=2026-06-21f"></script>
+  <script type="module" src="js/sync.js?v=2026-06-21f"></script>
+  <script type="module" src="js/admin.js?v=2026-06-21f"></script>
+  <script type="module" src="js/fulfillment.js?v=2026-06-21f"></script>
 </body>
 </html>

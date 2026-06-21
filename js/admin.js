@@ -1,4 +1,5 @@
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { escapeAttr, escapeHtml } from './util.js';
 
 const els = {
   list: document.getElementById('admin-user-list'),
@@ -48,7 +49,8 @@ async function renderAdminPanel(options = {}) {
 
   els.list.innerHTML = '<div class="recent-card"><p class="empty-note">Loading users...</p></div>';
   try {
-    const snap = await getDocs(collection(window.POSAdmin.db, 'users'));
+    const userCollection = window.POSFirebase?.userCollection || 'users';
+    const snap = await getDocs(collection(window.POSAdmin.db, userCollection));
     usersByUid.clear();
     snap.forEach(docSnap => usersByUid.set(docSnap.id, normalizeUserDoc(docSnap.id, docSnap.data())));
     hasLoaded = true;
@@ -174,18 +176,4 @@ function slugify(value) {
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .toLowerCase();
-}
-
-function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, s => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[s]));
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value);
 }

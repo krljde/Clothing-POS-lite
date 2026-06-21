@@ -15,7 +15,7 @@ export default [
     }
   },
   {
-    files: ['js/sync.js', 'js/admin.js'],
+    files: ['js/sync.js', 'js/admin.js', 'js/fulfillment.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

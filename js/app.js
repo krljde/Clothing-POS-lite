@@ -1,5 +1,8 @@
 /* ─── Constants ───────────────────────────────────────── */
-const STORAGE_KEY = 'shein_pos_lite_v10';
+const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_BOOKER_ROUTE = window.location.pathname.toLowerCase().endsWith('/booker.html')
+  || new URLSearchParams(window.location.search).has('booker');
+const STORAGE_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_lite_v10_dev' : 'shein_pos_lite_v10';
 const STATUS_OPTIONS = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
 const SYNC_STATUS_LABELS = {
   saved: 'Saved',
@@ -11,6 +14,7 @@ const SYNC_STATUS_LABELS = {
 
 /* ─── State ───────────────────────────────────────────── */
 const state = loadState();
+if (IS_BOOKER_ROUTE) document.body.classList.add('booker-route');
 let activeView = 'home-view';
 let currentBatchId = null;
 let orderFilter = { query: '', status: '' };
@@ -183,6 +187,10 @@ function bindEvents() {
   els.adminPanelBtn?.addEventListener('click', () => {
     closeMoreSheet();
     setView('admin-view');
+  });
+  document.getElementById('fulfillment-panel-btn')?.addEventListener('click', () => {
+    closeMoreSheet();
+    setView('fulfillment-view');
   });
   document.getElementById('gmail-dot-btn-desktop').addEventListener('click', () => {
     const cogDrop = document.getElementById('cog-dropdown');
@@ -444,7 +452,7 @@ function renderAccounts() {
           <div>
             <span class="field-label">Cost</span>
             <span class="field-main">${peso(account.cost)}</span>
-            <span class="field-sub">${account.expiryHours}h expiry</span>
+            <span class="field-sub">${account.expiresAt ? 'Exact expiry' : `${account.expiryHours}h expiry`}</span>
           </div>
           <div>
             <span class="field-label">Purchased</span>
@@ -663,7 +671,7 @@ function openAccountModal(accountId = null) {
   els.accountForm.email.value = account?.email || '';
   els.accountForm.password.value = account?.password || '';
   els.accountForm.cost.value = account?.cost ?? 190;
-  els.accountForm.expiryHours.value = account?.expiryHours ?? 20;
+  els.accountForm.expiryHours.value = account?.expiryHours ?? 24;
   // Sync voucher checkboxes
   const existingVouchers = (account?.availableVouchers || []).map(v => voucherKey(v));
   document.querySelectorAll('#voucher-picker input[type="checkbox"]').forEach(cb => {
@@ -681,7 +689,7 @@ function onSaveAccount(e) {
     email: String(form.get('email') || '').trim(),
     password: String(form.get('password') || '').trim(),
     cost: clampNumber(form.get('cost'), 0, 190),
-    expiryHours: clampNumber(form.get('expiryHours'), 1, 20),
+    expiryHours: clampNumber(form.get('expiryHours'), 1, 24),
     availableVouchers: splitVouchers(String(form.get('vouchers') || ''))
   };
   if (!payload.email || !payload.availableVouchers.length) return alert('Please complete the account fields.');
@@ -1401,6 +1409,130 @@ function importBackup(e) {
 }
 
 /* ─── Toast ───────────────────────────────────────────── */
+function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
+  const orderIdsByCheckout = {};
+  const readyCheckouts = checkouts.filter(checkout => checkout && checkout.status === 'fulfilled' && !checkout.posOrderId);
+  const fulfilledCheckouts = readyCheckouts.filter(checkout => {
+    const existingOrder = state.orders.find(order => order.fulfillmentCheckoutId === checkout.id);
+    if (existingOrder) {
+      orderIdsByCheckout[checkout.id] = existingOrder.id;
+      return false;
+    }
+    return true;
+  });
+  if (!readyCheckouts.length) throw new Error('No fulfilled checkouts are ready for approval.');
+  const email = String(card.surrenderedEmail || card.generatedEmail || card.accountEmail || '').trim();
+  const originalEmail = String(card.accountEmail || '').trim();
+  const password = String(card.finalPassword || card.accountPassword || card.password || '').trim();
+  if (!email) throw new Error('Surrendered email is required before approval.');
+  if (!originalEmail) throw new Error('Booker account email is required before approval.');
+
+  const voucherSource = [
+    ...checkouts
+      .filter(checkout => ['fulfilled', 'approved'].includes(checkout.status))
+      .map(checkout => checkout.voucher),
+    ...(Array.isArray(card.vouchers) ? card.vouchers : [])
+  ];
+  const availableVouchers = splitVouchers(voucherSource.join(', '));
+  const usedVoucherKeys = new Set();
+  checkouts
+    .filter(checkout => ['fulfilled', 'approved'].includes(checkout.status))
+    .forEach(checkout => {
+      const voucher = checkout.voucher;
+      const key = voucherKey(voucher);
+      if (!key) throw new Error('Every fulfilled checkout needs a voucher.');
+      if (usedVoucherKeys.has(key)) throw new Error(`Voucher ${voucher} is used more than once on this card.`);
+      usedVoucherKeys.add(key);
+      if (!availableVouchers.some(v => voucherKey(v) === key)) availableVouchers.push(voucher);
+    });
+
+  let account = state.accounts.find(item => item.sourceFulfillmentCardId === card.id);
+  if (!account) {
+    account = { id: uid('acct'), purchasedAt: isoFromTimestampLike(card.surrenderedAt || card.claimedAt || card.createdAt) || new Date().toISOString() };
+    state.accounts.unshift(account);
+  }
+  Object.assign(account, {
+    email,
+    originalEmail,
+    generatedEmail: card.generatedEmail || email,
+    surrenderedEmail: email,
+    password,
+    cost: clampNumber(card.accountCost, 0, 190),
+    expiryHours: clampNumber(card.expiryHours, 1, 24),
+    expiresAt: card.expiresAt || '',
+    availableVouchers: uniqueByVoucherKey(availableVouchers),
+    sourceFulfillmentCardId: card.id,
+    bookerName: card.bookerName || ''
+  });
+
+  const grouped = new Map();
+  fulfilledCheckouts.forEach(checkout => {
+    const key = [
+      String(checkout.customerName || '').trim().toLowerCase(),
+      String(checkout.customerContact || '').trim().toLowerCase(),
+      String(checkout.customerAddress || '').trim().toLowerCase()
+    ].join('|');
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(checkout);
+  });
+
+  const now = new Date().toISOString();
+  grouped.forEach(groupCheckouts => {
+    const first = groupCheckouts[0] || {};
+    const firstSummary = summarizeCheckoutItems(first);
+    const batchId = generateBatchId(first.customerName || 'Customer', first.customerContact || firstSummary);
+    groupCheckouts.forEach((checkout, index) => {
+      const row = reviewRows[checkout.id] || {};
+      const expectedTotal = clampNumber(checkout.expectedTotal, 0, 0);
+      const totalPrice = clampNumber(row.totalPrice, 0, 0);
+      const discountedPrice = clampNumber(row.discountedPrice ?? expectedTotal, 0, expectedTotal);
+      const refund = clampNumber(row.refund, 0, 0);
+      const orderId = uid('ord');
+      const itemSummary = summarizeCheckoutItems(checkout);
+      orderIdsByCheckout[checkout.id] = orderId;
+      state.orders.unshift({
+        id: orderId,
+        batchId,
+        checkoutId: `${batchId}-${String(index + 1).padStart(2, '0')}`,
+        customerName: String(checkout.customerName || 'Customer').trim(),
+        customerTag: String(checkout.customerContact || '').trim(),
+        customerContact: String(checkout.customerContact || '').trim(),
+        customerAddress: String(checkout.customerAddress || '').trim(),
+        itemSummary,
+        cartUrl: String(checkout.cartUrl || '').trim(),
+        bookerName: String(card.bookerName || checkout.bookerName || '').trim(),
+        fulfillmentCardId: card.id,
+        fulfillmentCheckoutId: checkout.id,
+        paymentMethod: 'Card',
+        createdAt: now,
+        itemCount: clampNumber(row.itemCount ?? checkout.itemCount ?? checkout.items?.length, 1, 1),
+        accountId: account.id,
+        voucherUsed: String(checkout.voucher || '').trim(),
+        tracking: String(row.tracking || '').trim(),
+        totalPrice,
+        discountedPrice,
+        refund,
+        deliveryStatus: normalizeStatus(row.deliveryStatus || 'Processing')
+      });
+    });
+  });
+
+  saveState();
+  render();
+  return { accountId: account.id, orderIdsByCheckout };
+}
+
+function summarizeCheckoutItems(checkout = {}) {
+  if (checkout.itemSummary) return String(checkout.itemSummary).trim();
+  if (Array.isArray(checkout.items)) {
+    return checkout.items
+      .map(item => typeof item === 'string' ? item : item?.label)
+      .filter(Boolean)
+      .join(', ');
+  }
+  return '';
+}
+
 let toastTimer;
 function showToast(msg, type = '') {
   clearTimeout(toastTimer);
@@ -1465,7 +1597,11 @@ function closeModal(modal) {
 
 /* ─── Data helpers ────────────────────────────────────── */
 function createProfitContext() {
-  return { orderCountByAccount: getOrderCountByAccount() };
+  const accountById = new Map();
+  state.accounts.forEach(account => {
+    if (!accountById.has(account.id)) accountById.set(account.id, account);
+  });
+  return { orderCountByAccount: getOrderCountByAccount(), accountById };
 }
 
 function getOrderCountByAccount() {
@@ -1512,7 +1648,7 @@ function summarizeGroupStatus(checkouts) {
 }
 
 function getOrderProfit(o, profitContext = createProfitContext()) {
-  const account = getAccountById(o.accountId);
+  const account = profitContext.accountById?.get(o.accountId) || getAccountById(o.accountId);
   const accountCost = Number(account?.cost || 0);
   const ordersOnAccount = profitContext.orderCountByAccount.get(o.accountId) || 1;
   const costShare = accountCost / ordersOnAccount;
@@ -1554,8 +1690,23 @@ function localDateInputValue(v) {
 }
 
 function getAccountById(id) { return state.accounts.find(a => a.id === id) || null; }
-function getExpiresAt(a) { return new Date(new Date(a.purchasedAt).getTime() + a.expiryHours * 3600000); }
+function getExpiresAt(a) {
+  if (a.expiresAt) {
+    const exact = new Date(a.expiresAt);
+    if (!Number.isNaN(exact.getTime())) return exact;
+  }
+  return new Date(new Date(a.purchasedAt).getTime() + a.expiryHours * 3600000);
+}
 function hoursLeftLabel(a) { const hrs = (getExpiresAt(a).getTime() - Date.now()) / 3600000; return hrs <= 0 ? 'Expired' : `${Math.floor(hrs)}h left`; }
+
+function isoFromTimestampLike(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return Number.isNaN(new Date(value).getTime()) ? '' : new Date(value).toISOString();
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  if (typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000).toISOString();
+  return '';
+}
 
 function getAccountStatusInfo(account) {
   if (getExpiresAt(account).getTime() <= Date.now()) return { status: 'Expired', remainingVouchers: [] };
@@ -1719,6 +1870,7 @@ window.POS = {
   setAdminMode,
   setView,
   showToast,
+  approveFulfillmentCard,
   setShopName(name) {
     state.shopName = String(name || '').trim();
     saveState();
