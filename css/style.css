@@ -1008,6 +1008,7 @@ body.booker-route .fab-backdrop {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface-2);
+  overflow: hidden;
 }
 .fulfillment-compact-details summary {
   cursor: pointer;
@@ -1017,6 +1018,15 @@ body.booker-route .fab-backdrop {
   align-items: center;
   padding: 12px;
   list-style: none;
+  border-radius: var(--radius);
+  transition: background var(--t);
+}
+.fulfillment-compact-details[open] summary {
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fulfillment-compact-details summary:hover {
+  background: var(--border-soft);
 }
 .fulfillment-compact-details summary::-webkit-details-marker {
   display: none;
@@ -1031,17 +1041,36 @@ body.booker-route .fab-backdrop {
   font-size: 14px;
 }
 .fulfillment-compact-details summary small {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 700;
 }
-.fulfillment-compact-details[open] summary {
-  border-bottom: 1px solid var(--border-soft);
+.fulfillment-details-toggle {
+  color: var(--text-3);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  transition: transform var(--t), color var(--t);
+}
+.fulfillment-compact-details[open] .fulfillment-details-toggle {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.fulfillment-compact-details summary:hover .fulfillment-details-toggle {
+  color: var(--text-2);
 }
 .fulfillment-compact-body {
   display: grid;
   gap: 12px;
   padding: 12px;
+  animation: detailsReveal 180ms cubic-bezier(.4,0,.2,1);
+}
+@keyframes detailsReveal {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fulfillment-compact-body { animation: none; }
 }
 .fulfillment-create-launcher {
   display: flex;
@@ -1118,18 +1147,16 @@ body.booker-route .fab-backdrop {
   align-items: flex-start;
 }
 .fulfillment-muted {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 13px;
   margin-top: 2px;
 }
-.fulfillment-share-row,
-.fulfillment-inline-field {
+.fulfillment-share-row {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-.fulfillment-share-row .form-input,
-.fulfillment-inline-field .form-input {
+.fulfillment-share-row .form-input {
   min-width: 0;
 }
 .fulfillment-textarea {
@@ -1201,71 +1228,6 @@ body.booker-route .fab-backdrop {
 .fulfillment-step-panel.is-active {
   display: grid;
   gap: 12px;
-}
-.fulfillment-accordion-form .fulfillment-step-panel {
-  display: grid;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.fulfillment-accordion-form .fulfillment-step-panel + .fulfillment-step-panel {
-  margin-top: -4px;
-}
-.fulfillment-accordion-trigger {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 0;
-  font-family: inherit;
-  text-align: left;
-}
-.fulfillment-accordion-trigger span:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.fulfillment-accordion-trigger strong {
-  font-size: 14px;
-}
-.fulfillment-accordion-trigger small {
-  color: var(--text-3);
-  font-size: 12px;
-  font-weight: 700;
-}
-.fulfillment-accordion-index {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: var(--text-2);
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  font-size: 12px;
-  font-weight: 900;
-}
-.fulfillment-accordion-panel.is-active .fulfillment-accordion-trigger {
-  background: var(--green-soft);
-}
-.fulfillment-accordion-panel.is-active .fulfillment-accordion-index {
-  color: var(--green);
-  border-color: transparent;
-}
-.fulfillment-accordion-body {
-  display: none;
-  padding: 12px;
-  border-top: 1px solid var(--border-soft);
-}
-.fulfillment-accordion-panel.is-active .fulfillment-accordion-body {
-  display: grid;
 }
 .fulfillment-form-section {
   display: grid;
@@ -1407,15 +1369,6 @@ body.booker-route .fab-backdrop {
   display: flex;
   gap: 12px;
 }
-.fulfillment-thumb {
-  width: 74px;
-  height: 74px;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  flex-shrink: 0;
-}
 .fulfillment-checkout-title {
   font-weight: 800;
   font-size: 14px;
@@ -1465,10 +1418,6 @@ body.booker-route .fab-backdrop {
 }
 .fulfillment-step-footer .btn-full {
   width: auto;
-}
-.booker-inline-footer {
-  padding-top: 10px;
-  border-top: 1px solid var(--border-soft);
 }
 .btn[disabled] {
   opacity: .5;
@@ -1604,6 +1553,32 @@ body.booker-route {
 }
 .booker-card-meta-row span { min-width: 0; }
 .booker-card-meta-row strong { color: var(--text); font-weight: 800; }
+.booker-next-summary {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.booker-next-summary strong,
+.booker-next-panel-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.booker-next-label {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
 .booker-claim-age {
   color: var(--text-2);
   font-size: 11px;
@@ -1672,6 +1647,35 @@ body.booker-route {
   display: grid;
   gap: 10px;
 }
+.booker-next-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.booker-next-panel-copy {
+  display: grid;
+  gap: 3px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.booker-next-panel-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.booker-next-panel-actions .btn {
+  min-width: 0;
+  padding-inline: 12px;
+  white-space: normal;
+}
+.booker-next-cart .ui-icon {
+  width: 18px;
+  height: 18px;
+}
 .booker-checkout {
   display: grid;
   gap: 10px;
@@ -1698,18 +1702,11 @@ body.booker-route {
 .booker-task-hint { color: var(--text-2); font-size: 13px; font-weight: 600; margin-top: 2px; }
 .pair-2col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-items: start; }
 @media (max-width: 339px) { .pair-2col { grid-template-columns: 1fr; } }
-.booker-cart-link {
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
 .booker-decision-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-.booker-account-form,
 .booker-surrender-form {
   display: grid;
   gap: 10px;
@@ -1943,7 +1940,6 @@ body.booker-route {
   .fulfillment-share-row,
   .fulfillment-invite-form,
   .fulfillment-invite-row,
-  .fulfillment-inline-field,
   .fulfillment-board-settings,
   .fulfillment-checkout-preview,
   .fulfillment-step-footer,
@@ -1951,6 +1947,10 @@ body.booker-route {
   .booker-checkout-summary {
     align-items: stretch;
     flex-direction: column;
+  }
+  .fulfillment-panel-head .badge,
+  .fulfillment-create-launcher .badge {
+    align-self: flex-start;
   }
   .fulfillment-board-settings {
     grid-template-columns: 1fr;
@@ -2080,10 +2080,6 @@ body.booker-route {
     max-height: calc(100vh - 32px);
     max-height: calc(100dvh - 32px);
   }
-  .booker-account-summary-side {
-    justify-content: end;
-    justify-items: end;
-  }
   .booker-card-action {
     min-height: 44px;
     padding: 10px 0;
@@ -2091,33 +2087,12 @@ body.booker-route {
   .booker-stats-grid {
     grid-template-columns: 1fr;
   }
-  .fulfillment-thumb {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 4 / 3;
-  }
 }
 
 @media (max-width: 420px) {
   .booker-account-summary {
     grid-template-columns: 1fr;
     gap: 10px;
-  }
-  .booker-account-summary-side {
-    width: 100%;
-    max-width: none;
-    min-height: 0;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-start;
-    justify-items: start;
-    gap: 8px 10px;
-  }
-  .booker-account-summary-side .booker-card-action {
-    justify-self: auto;
-    margin-top: 0;
-    margin-left: auto;
   }
   .booker-claimed-by,
   .booker-claim-age {

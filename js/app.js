@@ -1597,7 +1597,11 @@ function closeModal(modal) {
 
 /* ─── Data helpers ────────────────────────────────────── */
 function createProfitContext() {
-  return { orderCountByAccount: getOrderCountByAccount() };
+  const accountById = new Map();
+  state.accounts.forEach(account => {
+    if (!accountById.has(account.id)) accountById.set(account.id, account);
+  });
+  return { orderCountByAccount: getOrderCountByAccount(), accountById };
 }
 
 function getOrderCountByAccount() {
@@ -1644,7 +1648,7 @@ function summarizeGroupStatus(checkouts) {
 }
 
 function getOrderProfit(o, profitContext = createProfitContext()) {
-  const account = getAccountById(o.accountId);
+  const account = profitContext.accountById?.get(o.accountId) || getAccountById(o.accountId);
   const accountCost = Number(account?.cost || 0);
   const ordersOnAccount = profitContext.orderCountByAccount.get(o.accountId) || 1;
   const costShare = accountCost / ordersOnAccount;

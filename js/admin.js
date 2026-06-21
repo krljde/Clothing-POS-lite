@@ -1,4 +1,5 @@
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { escapeAttr, escapeHtml } from './util.js';
 
 const els = {
   list: document.getElementById('admin-user-list'),
@@ -175,18 +176,4 @@ function slugify(value) {
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .toLowerCase();
-}
-
-function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, s => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[s]));
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value);
 }

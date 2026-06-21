@@ -12,6 +12,7 @@ import {
   limit,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { escapeAttr, escapeHtml, peso, uniqueByVoucherKey, voucherKey } from './util.js';
 
 const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 const BOARD_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerBoards' : 'bookerBoards';
@@ -306,7 +307,7 @@ function renderOwnerBoardPanel(owner) {
             <strong>Manage Portal</strong>
             <small>${activeInvites} active invite${activeInvites === 1 ? '' : 's'} - ${owner.board.gmailBase ? 'Gmail base set' : 'Gmail base missing'}</small>
           </span>
-          <span class="booker-card-action is-link">Open</span>
+          <span class="fulfillment-details-toggle" aria-hidden="true">${icon('chevron-right')}</span>
         </summary>
         <div class="fulfillment-compact-body">
           <form id="fulfillment-board-settings" class="fulfillment-board-settings" novalidate>
@@ -502,7 +503,7 @@ function renderOwnerCards(owner) {
           <span class="section-label">Account Cards</span>
           <h3>${escapeHtml(groups[selected]?.label || 'Active')}</h3>
         </div>
-        <span class="badge processing">${visibleCards.length}</span>
+        <span class="badge is-open">${visibleCards.length}</span>
       </div>
       <div class="fulfillment-filter-row" role="tablist" aria-label="Fulfillment card filters">
         ${renderOwnerCardFilterButton('active', 'Active', groups.active.cards.length, selected)}
@@ -1152,7 +1153,6 @@ function maybeAutoAdvance(field) {
 function setStepFormIndex(form, requestedIndex, options = {}) {
   const total = getStepTotal(form);
   const index = Math.min(Math.max(Number(requestedIndex) || 0, 0), total - 1);
-  const isAccordion = form.classList.contains('fulfillment-accordion-form');
   form.dataset.stepIndex = String(index);
   form.querySelectorAll('[data-step]').forEach(panel => {
     const active = Number(panel.dataset.step) === index;
@@ -1173,12 +1173,12 @@ function setStepFormIndex(form, requestedIndex, options = {}) {
   const submit = form.querySelector('button[type="submit"]');
   const addCheckout = form.querySelector('[data-add-checkout]');
   const resetStaged = form.querySelector('[data-reset-staged]');
-  if (prev) prev.hidden = isAccordion || index === 0;
-  if (next) next.hidden = isAccordion || index === total - 1;
-  if (count) count.hidden = isAccordion;
-  if (submit) submit.hidden = !isAccordion && index !== total - 1;
-  if (addCheckout) addCheckout.hidden = !isAccordion && index !== total - 1;
-  if (resetStaged) resetStaged.hidden = !isAccordion && index !== total - 1;
+  if (prev) prev.hidden = index === 0;
+  if (next) next.hidden = index === total - 1;
+  if (count) count.hidden = false;
+  if (submit) submit.hidden = index !== total - 1;
+  if (addCheckout) addCheckout.hidden = index !== total - 1;
+  if (resetStaged) resetStaged.hidden = index !== total - 1;
   if (options.validate !== false) validateStep(getStepPanel(form, index), { show: false });
 }
 
@@ -1724,6 +1724,9 @@ function renderBookerCard(state, card) {
   const canExpand = Boolean(ours);
   const claimBlockedByActiveCard = !card.bookerName && Boolean(getActiveBookerCard(state, card.id));
   const canClaim = !card.bookerName && state.bookerName && !claimBlockedByActiveCard;
+  const nextCheckout = getNextBookerCheckout(card, checkouts, ours);
+  const nextCheckoutKey = nextCheckout ? checkoutExpansionKey(card.id, nextCheckout.id) : '';
+  const nextCheckoutExpanded = nextCheckoutKey ? state.expandedCheckoutIds.has(nextCheckoutKey) : false;
   const summaryOpen = canExpand
     ? `<button type="button" class="booker-account-summary" data-toggle-booker-card="${escapeAttr(card.id)}" aria-expanded="${expanded ? 'true' : 'false'}">`
     : '<div class="booker-account-summary is-locked" aria-expanded="false" aria-disabled="true">';
@@ -1748,9 +1751,11 @@ function renderBookerCard(state, card) {
             <span><strong>${peso(expectedTotal)}</strong> expected</span>
             ${claimedAge ? `<span class="booker-claim-age ${staleClaim ? 'is-stale' : ''}">${escapeHtml(claimedAge)}</span>` : ''}
           </div>
+          ${nextCheckout ? renderBookerNextSummary(nextCheckout, expanded) : ''}
           ${claimedByOther ? `<span class="booker-claimed-by">Claimed by ${escapeHtml(card.bookerName)}</span>` : ''}
         </div>
       ${summaryClose}
+      ${expanded && nextCheckout ? renderBookerNextActionPanel(card, nextCheckout, nextCheckoutExpanded) : ''}
       ${expanded ? `
         <div class="list-stack booker-checkout-list">
           ${checkouts.map(checkout => renderBookerCheckout(state, card, checkout, ours)).join('')}
@@ -1764,6 +1769,38 @@ function renderBookerCard(state, card) {
       ` : ''}
       ${card.status === 'surrendered' ? '<p class="booker-done">Surrender submitted. Send/confirm screenshots in Messenger, then wait for owner review.</p>' : ''}
     </article>
+  `;
+}
+
+function getNextBookerCheckout(card, checkouts, ours) {
+  if (!ours || ['surrendered', 'approved'].includes(card.status)) return null;
+  return checkouts.find(checkout => !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status)) || null;
+}
+
+function renderBookerNextSummary(checkout, expanded) {
+  return `
+    <div class="booker-next-summary" aria-label="Next checkout">
+      <span class="booker-next-label">Next checkout</span>
+      <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
+      <span>${escapeHtml(checkout.voucher || 'Voucher')} - ${expanded ? 'review below' : 'tap card to review'}</span>
+    </div>
+  `;
+}
+
+function renderBookerNextActionPanel(card, checkout, expanded) {
+  const expansionKey = checkoutExpansionKey(card.id, checkout.id);
+  return `
+    <div class="booker-next-panel" aria-label="Next checkout action">
+      <div class="booker-next-panel-copy">
+        <span class="booker-next-label">Next step</span>
+        <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
+        <span>Open the cart, review the checkout, then mark the outcome.</span>
+      </div>
+      <div class="booker-next-panel-actions">
+        ${checkout.cartUrl ? `<a class="btn btn-secondary booker-next-cart" href="${escapeAttr(checkout.cartUrl)}" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart</span></a>` : ''}
+        <button type="button" class="btn btn-primary" data-toggle-booker-checkout="${escapeAttr(expansionKey)}" data-focus-booker-checkout aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? 'Hide details' : 'Review details'}</button>
+      </div>
+    </div>
   `;
 }
 
@@ -1947,10 +1984,13 @@ async function handleBookerClick(event, state) {
     renderBooker(state);
     return;
   }
-  const toggleCheckoutId = target.closest('[data-toggle-booker-checkout]')?.getAttribute('data-toggle-booker-checkout');
+  const toggleCheckout = target.closest('[data-toggle-booker-checkout]');
+  const toggleCheckoutId = toggleCheckout?.getAttribute('data-toggle-booker-checkout');
   if (toggleCheckoutId) {
+    const shouldFocusCheckout = toggleCheckout.hasAttribute('data-focus-booker-checkout') && !state.expandedCheckoutIds.has(toggleCheckoutId);
     toggleSingleExpanded(state.expandedCheckoutIds, toggleCheckoutId);
     renderBooker(state);
+    if (shouldFocusCheckout) focusBookerCheckout(state, toggleCheckoutId);
     return;
   }
   const decisionButton = target.closest('[data-mark-checkout]');
@@ -1990,6 +2030,15 @@ function toggleSingleExpanded(set, id) {
   const shouldOpen = !set.has(id);
   set.clear();
   if (shouldOpen) set.add(id);
+}
+
+function focusBookerCheckout(state, expansionKey) {
+  requestAnimationFrame(() => {
+    const summary = state.root.querySelector(`[data-toggle-booker-checkout="${cssEscape(expansionKey)}"]:not([data-focus-booker-checkout])`);
+    const checkout = summary?.closest('.booker-checkout');
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    checkout?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+  });
 }
 
 async function handleBookerSubmit(event, state) {
@@ -2449,20 +2498,6 @@ function statusClass(status) {
   return known.includes(status) ? `is-${status}` : 'is-open';
 }
 
-function voucherKey(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function uniqueByVoucherKey(values) {
-  const seen = new Set();
-  return values.filter(value => {
-    const key = voucherKey(value);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function formatDateTimeValue(value) {
   const ms = toMs(value);
   if (!ms) return '';
@@ -2478,10 +2513,6 @@ function formatElapsedSince(value) {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
-function peso(value) {
-  return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(Number(value || 0));
 }
 
 function cssEscape(value) {
@@ -2649,18 +2680,4 @@ function mountAppDialog(dialog, focusTarget) {
 function refreshAppDialogModalState() {
   const hasOpenModal = document.querySelector('.app-dialog, .fulfillment-create-modal, .booker-surrender-modal, .modal:not([hidden])');
   document.body.classList.toggle('modal-open', Boolean(hasOpenModal));
-}
-
-function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, char => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[char]));
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value);
 }
