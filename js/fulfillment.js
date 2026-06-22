@@ -1641,10 +1641,14 @@ function focusFirstInvalid(root) {
 async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
-  await updateDoc(checkoutRef(owner.board.id, cardId, checkoutId), {
+  const timestamp = serverTimestamp();
+  const batch = writeBatch(getDb());
+  batch.update(checkoutRef(owner.board.id, cardId, checkoutId), {
     ...checkout,
-    updatedAt: serverTimestamp()
+    updatedAt: timestamp
   });
+  batch.update(cardRef(owner.board.id, cardId), { updatedAt: timestamp });
+  await batch.commit();
   showToast('Checkout updated', 'success');
   await loadOwnerBoard(owner, { force: true });
 }
@@ -1783,7 +1787,10 @@ async function approveOwnerCard(owner, cardId) {
 
   try {
     const reviewedCard = { ...card, accountCost: numberValue(accountCostValue, 190) };
-    const result = window.POS.approveFulfillmentCard(reviewedCard, checkouts, reviewRows);
+    if (!window.POS?.prepareFulfillmentApproval || !window.POS?.commitFulfillmentApproval) {
+      throw new Error('POS approval helpers are unavailable.');
+    }
+    const result = window.POS.prepareFulfillmentApproval(reviewedCard, checkouts, reviewRows);
     const batch = writeBatch(getDb());
     fulfilled.forEach(checkout => {
       batch.update(checkoutRef(owner.board.id, cardId, checkout.id), {
@@ -1809,6 +1816,7 @@ async function approveOwnerCard(owner, cardId) {
       }, { merge: true });
     }
     await batch.commit();
+    window.POS.commitFulfillmentApproval(result);
     owner.ownerCardModalId = '';
     showToast('Fulfilled checkouts approved to POS', 'success');
     await loadOwnerBoard(owner, { force: true });
@@ -2699,8 +2707,8 @@ async function surrenderBookerCard(state, cardId, form) {
   if (!generatedEmail || !accountEmail || !accountPassword || !expiresAt) return;
 
   const checkoutSnap = await getDocs(checkoutsRef(state.boardId, cardId));
-  const checkouts = checkoutSnap.docs.map(docSnap => docSnap.data());
-  if (!checkouts.length || !checkouts.every(checkout => ['fulfilled', 'cannot_fulfill'].includes(checkout.status))) {
+  const checkoutRefs = checkoutSnap.docs.map(docSnap => checkoutRef(state.boardId, cardId, docSnap.id));
+  if (!checkoutRefs.length) {
     showToast('Decide every checkout before surrendering the account.', 'error');
     return;
   }
@@ -2708,8 +2716,14 @@ async function surrenderBookerCard(state, cardId, form) {
     await runTransaction(getDb(), async transaction => {
       const ref = cardRef(state.boardId, cardId);
       const lockRef = bookerLockRef(state.boardId, state.bookerName);
-      const snap = await transaction.get(ref);
+      const [snap, ...checkoutSnaps] = await Promise.all([
+        transaction.get(ref),
+        ...checkoutRefs.map(checkoutDoc => transaction.get(checkoutDoc))
+      ]);
       if (!snap.exists()) throw new Error('Account card not found.');
+      if (!checkoutSnaps.every(checkoutDoc => checkoutDoc.exists() && ['fulfilled', 'cannot_fulfill'].includes(checkoutDoc.data().status))) {
+        throw new Error('Decide every checkout before surrendering the account.');
+      }
       const card = snap.data();
       if (normalizeBookerName(card.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account belongs to another booker.');
       const timestamp = serverTimestamp();
