@@ -33,7 +33,11 @@ const authPersistenceReady = setPersistence(auth, browserLocalPersistence).catch
   console.warn('auth persistence setup failed:', err);
 });
 const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  // Some networks/proxies/extensions block Firestore's streaming Listen channel (one-time
+  // reads still work, but realtime onSnapshot errors out). Auto-detect and fall back to
+  // long-polling so realtime sync survives those environments.
+  experimentalAutoDetectLongPolling: true
 });
 const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
