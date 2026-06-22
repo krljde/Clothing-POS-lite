@@ -179,7 +179,14 @@ service cloud.firestore {
       allow update, delete: if ownsBoard(boardCollection, boardId);
 
       match /cards/{cardId} {
-        allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+        allow read: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && (
+              resource.data.bookerName == ''
+              || resource.data.bookerName == sessionBookerName(boardCollection)
+            )
+          );
         allow create, delete: if ownsBoard(boardCollection, boardId);
         allow update: if ownsBoard(boardCollection, boardId)
           || (
@@ -199,6 +206,7 @@ service cloud.firestore {
             ])
             && request.resource.data.status in ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered']
             && request.resource.data.bookerName == sessionBookerName(boardCollection)
+            && (request.resource.data.status != 'surrendered' || resource.data.status == 'ready_to_surrender')
             && (
               !('bookerName' in resource.data)
               || resource.data.bookerName == ''
@@ -207,12 +215,20 @@ service cloud.firestore {
           );
 
         match /checkouts/{checkoutId} {
-          allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+          allow read: if ownsBoard(boardCollection, boardId)
+            || (
+              hasBookerSession(boardCollection, boardId)
+              && (
+                get(cardPath(boardCollection, boardId, cardId)).data.bookerName == ''
+                || get(cardPath(boardCollection, boardId, cardId)).data.bookerName == sessionBookerName(boardCollection)
+              )
+            );
           allow create, delete: if ownsBoard(boardCollection, boardId);
           allow update: if ownsBoard(boardCollection, boardId)
             || (
               hasBookerSession(boardCollection, boardId)
               && cardClaimedBySession(boardCollection, boardId, cardId)
+              && get(cardPath(boardCollection, boardId, cardId)).data.status in ['claimed', 'fulfilling']
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'status',
                 'bookerName',

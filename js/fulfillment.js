@@ -1343,6 +1343,7 @@ async function createCardFromPending(owner, pendingBatch) {
       transaction.set(nextCardRef, {
         ownerUid: user.uid,
         status: 'open',
+        bookerName: '',
         accountCost: 190,
         notes: '',
         createdAt: timestamp,
@@ -2053,10 +2054,13 @@ async function loadBookerBoard(state) {
 
 function subscribeBookerBoard(state) {
   if (state.boardUnsub) { state.boardUnsub(); state.boardUnsub = null; }
-  state.boardUnsub = onSnapshot(cardsRef(state.boardId), async cardSnap => {
+  let unclaimedCards = [];
+  let myCards = [];
+  let refreshId = 0;
+  const refreshCards = async () => {
+    const currentRefreshId = ++refreshId;
     try {
-      const cards = cardSnap.docs
-        .map(docSnap => normalizeCard(docSnap.id, docSnap.data()))
+      const cards = Array.from(new Map([...unclaimedCards, ...myCards].map(card => [card.id, card])).values())
         .sort((a, b) => statusSort(a.status) - statusSort(b.status) || toMs(a.createdAt) - toMs(b.createdAt));
       const pairs = await Promise.all(cards.map(async card => {
         const checkoutSnap = await getDocs(checkoutsRef(state.boardId, card.id));
@@ -2065,6 +2069,7 @@ function subscribeBookerBoard(state) {
           checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data())).sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt))
         ];
       }));
+      if (currentRefreshId !== refreshId) return;
       state.cards = cards;
       state.checkoutsByCard = new Map(pairs);
       state.loading = false;
@@ -2074,10 +2079,31 @@ function subscribeBookerBoard(state) {
       console.warn('booker board sync failed:', err);
       state.loading = false;
     }
-  }, err => {
+  };
+  const handleSnapshot = async (bucket, cardSnap) => {
+    const cards = cardSnap.docs.map(docSnap => normalizeCard(docSnap.id, docSnap.data()));
+    if (bucket === 'mine') myCards = cards;
+    else unclaimedCards = cards;
+    await refreshCards();
+  };
+  const handleError = err => {
     console.warn('booker board snapshot error:', err);
     state.loading = false;
-  });
+  };
+  const unclaimedUnsub = onSnapshot(
+    query(cardsRef(state.boardId), where('bookerName', '==', '')),
+    cardSnap => { handleSnapshot('unclaimed', cardSnap); },
+    handleError
+  );
+  const mineUnsub = onSnapshot(
+    query(cardsRef(state.boardId), where('bookerName', '==', state.bookerName)),
+    cardSnap => { handleSnapshot('mine', cardSnap); },
+    handleError
+  );
+  state.boardUnsub = () => {
+    unclaimedUnsub();
+    mineUnsub();
+  };
 }
 
 function renderBooker(state) {
