@@ -11,7 +11,6 @@ import {
   query,
   where,
   orderBy,
-  limit,
   onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -225,11 +224,12 @@ async function loadOwnerBoard(owner, options = {}) {
     const boardQuery = query(
       collection(db, BOARD_COLLECTION),
       where('ownerUid', '==', user.uid),
-      where('active', '==', true),
-      limit(1)
+      where('active', '==', true)
     );
     const snap = await getDocs(boardQuery);
-    const first = snap.docs[0];
+    const docs = snap.docs.sort((a, b) => toMs(a.data().createdAt) - toMs(b.data().createdAt));
+    if (docs.length > 1) console.warn(`Multiple active fulfillment boards found; using oldest (${docs[0].id}).`);
+    const first = docs[0];
     owner.board = first ? normalizeBoard(first.id, first.data()) : null;
     if (owner.board) {
       await Promise.all([loadOwnerCards(owner), loadOwnerInvites(owner)]);
@@ -1236,6 +1236,7 @@ async function submitPendingCheckout(owner, form) {
       cartUrl: checkout.cartUrl,
       items: checkout.items,
       notes: checkout.notes,
+      cannotFulfillReason: '',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -1256,6 +1257,7 @@ async function savePendingCheckout(owner, pendingId, form) {
     await updateDoc(pendingCheckoutRef(owner.board.id, pendingId), {
       ...checkout,
       status: 'pending',
+      cannotFulfillReason: '',
       updatedAt: serverTimestamp()
     });
     showToast('Checkout request updated', 'success');
@@ -1393,12 +1395,27 @@ async function postNowFromPending(owner) {
     showToast('No pending requests to post.', 'error');
     return;
   }
+  const seenVouchers = new Set();
+  const batch = [];
+  const keptBack = [];
+  pending.forEach(pc => {
+    const key = voucherKey(pc.voucher);
+    if (key && !seenVouchers.has(key)) {
+      seenVouchers.add(key);
+      batch.push(pc);
+    } else {
+      keptBack.push(pc);
+    }
+  });
   const confirmed = await showConfirm(
-    `Post ${pending.length} pending request${pending.length === 1 ? '' : 's'} as a card now?`,
+    `Post ${batch.length} pending request${batch.length === 1 ? '' : 's'} as a card now?`,
     { confirmLabel: 'Post Now' }
   );
   if (!confirmed) return;
-  await createCardFromPending(owner, pending);
+  await createCardFromPending(owner, batch);
+  if (keptBack.length) {
+    showToast(`Posted ${batch.length}; ${keptBack.length} duplicate-voucher request${keptBack.length === 1 ? '' : 's'} kept in queue.`, 'success');
+  }
 }
 
 function readCheckoutEntry(form, options = {}) {
@@ -1655,19 +1672,29 @@ async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
 }
 
 async function reopenCheckout(owner, cardId, checkoutId) {
-  await updateDoc(checkoutRef(owner.board.id, cardId, checkoutId), {
+  const card = owner.cards.find(item => item.id === cardId);
+  const batch = writeBatch(getDb());
+  const timestamp = serverTimestamp();
+  batch.update(checkoutRef(owner.board.id, cardId, checkoutId), {
     status: 'open',
     canFulfill: null,
     cannotFulfillReason: '',
     unavailableItems: [],
     fulfilledAt: null,
     failedAt: null,
-    updatedAt: serverTimestamp()
+    updatedAt: timestamp
   });
-  await updateDoc(cardRef(owner.board.id, cardId), {
+  batch.update(cardRef(owner.board.id, cardId), {
     status: 'fulfilling',
-    updatedAt: serverTimestamp()
+    updatedAt: timestamp
   });
+  if (card?.bookerName) {
+    batch.update(bookerLockRef(owner.board.id, card.bookerName), {
+      status: 'active',
+      updatedAt: timestamp
+    });
+  }
+  await batch.commit();
   showToast('Checkout reopened', 'success');
   await loadOwnerBoard(owner, { force: true });
 }
@@ -1716,6 +1743,7 @@ async function replaceFailedCheckout(owner, cardId, checkoutId) {
         cartUrl: failed.cartUrl,
         items: failed.items,
         notes: failed.notes,
+        cannotFulfillReason: failed.cannotFulfillReason || '',
         createdAt: timestamp,
         updatedAt: timestamp
       });
@@ -2860,6 +2888,7 @@ function normalizePendingCheckout(id, data = {}) {
     cartUrl: data.cartUrl || '',
     items: normalizeItems(data.items || []),
     notes: data.notes || '',
+    cannotFulfillReason: data.cannotFulfillReason || '',
     ownerUid: data.ownerUid || '',
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null
