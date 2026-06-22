@@ -1659,6 +1659,11 @@ function focusFirstInvalid(root) {
 async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
+  const card = owner.cards.find(item => item.id === cardId);
+  if (card && ['claimed', 'fulfilling'].includes(card.status)) {
+    const confirmed = await showConfirm(`This card is claimed by ${card.bookerName || 'a booker'} and they may be working from the current details. Save anyway?`);
+    if (!confirmed) return;
+  }
   const timestamp = serverTimestamp();
   const batch = writeBatch(getDb());
   batch.update(checkoutRef(owner.board.id, cardId, checkoutId), {
@@ -1803,6 +1808,10 @@ async function approveOwnerCard(owner, cardId) {
     const discountedPrice = row?.querySelector('[data-review-discounted]')?.value || '';
     if (totalPrice === '' || discountedPrice === '') {
       showToast('Customer payment and checkout cost are required for every fulfilled checkout.', 'error');
+      return;
+    }
+    if (Number(totalPrice) <= 0 || Number(discountedPrice) <= 0) {
+      showToast('Customer payment and checkout cost must be greater than 0.', 'error');
       return;
     }
     reviewRows[checkout.id] = {
