@@ -5,16 +5,22 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   writeBatch,
   runTransaction,
   query,
   where,
+  orderBy,
   limit,
+  onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { escapeAttr, escapeHtml, peso, uniqueByVoucherKey, voucherKey } from './util.js';
 
+let autoGroupInFlight = false;
+
 const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_MOCK = IS_LOCAL_DEV_HOST && new URLSearchParams(window.location.search).has('mock');
 const BOARD_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerBoards' : 'bookerBoards';
 const INVITE_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerInvites' : 'bookerInvites';
 const SESSION_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerSessions' : 'bookerSessions';
@@ -39,8 +45,10 @@ const ICON_PATHS = {
   plus: '<path d="M12 5v14"></path><path d="M5 12h14"></path>',
   refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2"></path><path d="M3 12a9 9 0 0 1 15.5-6.2"></path><path d="M18 3v6h-6"></path><path d="M6 21v-6h6"></path>',
   rotate: '<path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 3v6h6"></path>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path>',
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path>',
   trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path>',
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>'
 };
 
@@ -90,6 +98,14 @@ function checkoutRef(boardId, cardId, checkoutId) {
   return doc(getDb(), BOARD_COLLECTION, boardId, 'cards', cardId, 'checkouts', checkoutId);
 }
 
+function pendingCheckoutsRef(boardId) {
+  return collection(getDb(), BOARD_COLLECTION, boardId, 'pendingCheckouts');
+}
+
+function pendingCheckoutRef(boardId, pendingId) {
+  return doc(getDb(), BOARD_COLLECTION, boardId, 'pendingCheckouts', pendingId);
+}
+
 function bookerLockRef(boardId, bookerName) {
   return doc(getDb(), BOARD_COLLECTION, boardId, 'bookerLocks', bookerLockKey(bookerName));
 }
@@ -127,10 +143,10 @@ function initOwnerFulfillment() {
   const refreshBtn = document.getElementById('fulfillment-refresh');
   if (!root) return;
   if (refreshBtn) {
-    refreshBtn.className = 'icon-btn icon-btn-secondary icon-btn-sm';
+    refreshBtn.className = 'btn btn-secondary btn-sm';
     refreshBtn.setAttribute('aria-label', 'Refresh fulfillment');
     refreshBtn.setAttribute('title', 'Refresh fulfillment');
-    refreshBtn.innerHTML = `${icon('refresh')}<span class="sr-only">Refresh fulfillment</span>`;
+    refreshBtn.innerHTML = `${icon('refresh')}<span>Refresh</span>`;
   }
 
   const owner = {
@@ -140,20 +156,26 @@ function initOwnerFulfillment() {
     revealedInviteCodes: new Map(),
     cards: [],
     checkoutsByCard: new Map(),
-    stagedCheckouts: [],
-    createStepIndex: 0,
+    pendingCheckouts: [],
+    pendingUnsub: null,
     createModalOpen: false,
     ownerCardModalId: '',
     cardFilter: '',
     loading: false
   };
 
-  refreshBtn?.addEventListener('click', () => loadOwnerBoard(owner, { force: true }));
+  refreshBtn?.addEventListener('click', () => { if (!IS_MOCK) loadOwnerBoard(owner, { force: true }); });
   window.addEventListener('pos:viewchange', (event) => {
+    if (IS_MOCK) return;
     if (event.detail?.viewId === 'fulfillment-view') loadOwnerBoard(owner);
   });
   window.addEventListener('pos:authchange', () => {
+    if (IS_MOCK) return;
     if (isOwnerViewActive()) loadOwnerBoard(owner, { force: true });
+  });
+  window.addEventListener('pos:request-co', () => {
+    owner.createModalOpen = true;
+    renderOwner(owner);
   });
   root.addEventListener('click', event => handleOwnerClick(event, owner));
   root.addEventListener('submit', event => handleOwnerSubmit(event, owner));
@@ -187,9 +209,11 @@ async function loadOwnerBoard(owner, options = {}) {
   const db = getDb();
   const user = getAuthUser();
   if (!db || !user) {
+    if (owner.pendingUnsub) { owner.pendingUnsub(); owner.pendingUnsub = null; }
     owner.board = null;
     owner.cards = [];
     owner.checkoutsByCard = new Map();
+    owner.pendingCheckouts = [];
     owner.ownerCardModalId = '';
     renderOwner(owner);
     return;
@@ -209,10 +233,13 @@ async function loadOwnerBoard(owner, options = {}) {
     owner.board = first ? normalizeBoard(first.id, first.data()) : null;
     if (owner.board) {
       await Promise.all([loadOwnerCards(owner), loadOwnerInvites(owner)]);
+      subscribePendingCheckouts(owner);
     } else {
+      if (owner.pendingUnsub) { owner.pendingUnsub(); owner.pendingUnsub = null; }
       owner.invites = [];
       owner.cards = [];
       owner.checkoutsByCard = new Map();
+      owner.pendingCheckouts = [];
       owner.ownerCardModalId = '';
     }
   } catch (err) {
@@ -258,7 +285,7 @@ async function loadOwnerInvites(owner) {
 
 function renderOwner(owner) {
   const user = getAuthUser();
-  if (!user) {
+  if (!IS_MOCK && !user) {
     owner.root.innerHTML = '<div class="recent-card"><p class="empty-note">Sign in to manage booker fulfillment cards.</p></div>';
     return;
   }
@@ -268,7 +295,7 @@ function renderOwner(owner) {
   }
   owner.root.innerHTML = `
     ${renderOwnerBoardPanel(owner)}
-    ${owner.board ? renderOwnerCreateLauncher(owner) : ''}
+    ${owner.board ? renderOwnerPendingQueue(owner) : ''}
     ${owner.board ? renderOwnerCards(owner) : ''}
     ${owner.board && owner.createModalOpen ? renderOwnerCreatePanel(owner) : ''}
     ${owner.board && owner.ownerCardModalId ? renderOwnerCardModal(owner) : ''}
@@ -279,43 +306,77 @@ function renderOwner(owner) {
 function renderOwnerBoardPanel(owner) {
   if (!owner.board) {
     return `
-      <section class="recent-card fulfillment-panel">
-        <span class="section-label">Booker Portal</span>
-        <h3>Invite-Code Access</h3>
-        <p class="fulfillment-muted">Create the internal board before adding account cards and inviting bookers.</p>
-        <button type="button" class="btn btn-primary" data-create-board>Create Booker Portal</button>
+      <section class="ful-board">
+        <div class="ful-board-head">
+          <div class="ful-board-title">
+            <span class="field-label">Booker Portal</span>
+            <h3>Fulfillment Board</h3>
+          </div>
+        </div>
+        <div class="ful-board-empty">
+          <p class="fulfillment-muted">Create the internal board before adding account cards and inviting bookers.</p>
+          <button type="button" class="btn btn-primary" data-create-board>Create Booker Portal</button>
+        </div>
       </section>
     `;
   }
   const link = getBookerPortalLink();
-  const active = owner.cards.filter(card => card.status !== 'approved').length;
-  const ready = owner.cards.filter(card => card.status === 'surrendered').length;
+  const active = owner.cards.filter(card => !['surrendered', 'approved'].includes(card.status)).length;
+  const review = owner.cards.filter(card => card.status === 'surrendered').length;
+  const approved = owner.cards.filter(card => card.status === 'approved').length;
   const activeInvites = owner.invites.filter(invite => invite.active).length;
   return `
-    <section class="recent-card fulfillment-panel">
-      <div class="fulfillment-panel-head">
-        <div>
-          <span class="section-label">Booker Portal</span>
-          <h3>Invite-Code Access</h3>
-          <p class="fulfillment-muted">${active} active account card${active === 1 ? '' : 's'} - ${ready} ready for review</p>
+    <section class="ful-board">
+      <div class="ful-board-head">
+        <div class="ful-board-title">
+          <span class="field-label">Booker Portal</span>
+          <h3>Fulfillment Board</h3>
         </div>
         <span class="badge available">Active</span>
       </div>
-      <details class="fulfillment-compact-details" ${owner.board.gmailBase ? '' : 'open'}>
-        <summary>
-          <span>
-            <strong>Manage Portal</strong>
-            <small>${activeInvites} active invite${activeInvites === 1 ? '' : 's'} - ${owner.board.gmailBase ? 'Gmail base set' : 'Gmail base missing'}</small>
-          </span>
+      <div class="ful-stat-strip">
+        <div class="ful-stat-item">
+          <span class="ful-stat-value">${active}</span>
+          <span class="ful-stat-label">Active</span>
+        </div>
+        <div class="ful-stat-item${review > 0 ? ' ful-stat-item--review' : ''}">
+          <span class="ful-stat-value">${review}</span>
+          <span class="ful-stat-label">Review</span>
+        </div>
+        <div class="ful-stat-item">
+          <span class="ful-stat-value">${approved}</span>
+          <span class="ful-stat-label">Approved</span>
+        </div>
+        <div class="ful-stat-item">
+          <span class="ful-stat-value">${activeInvites}</span>
+          <span class="ful-stat-label">Bookers</span>
+        </div>
+      </div>
+      <details class="ful-manage" ${owner.board.gmailBase ? '' : 'open'}>
+        <summary class="ful-manage-summary">
+          <span>${activeInvites} active invite${activeInvites === 1 ? '' : 's'} · ${owner.board.gmailBase ? 'Gmail base set' : 'Gmail base missing'} · ${owner.board.targetVouchers?.length ? `Combo: ${owner.board.targetVouchers.join(', ')}` : 'No combo set'}</span>
           <span class="fulfillment-details-toggle" aria-hidden="true">${icon('chevron-right')}</span>
         </summary>
-        <div class="fulfillment-compact-body">
+        <div class="ful-manage-body">
           <form id="fulfillment-board-settings" class="fulfillment-board-settings" novalidate>
             <div class="form-group">
               <label class="form-label">Gmail Base For Surrender Emails</label>
               <input class="form-input" name="gmailBase" type="email" inputmode="email" autocomplete="email" placeholder="main@gmail.com" value="${escapeAttr(owner.board.gmailBase || '')}" />
             </div>
-            ${iconButton('Save Gmail base', 'save', 'type="submit"')}
+            <div class="form-group" style="grid-column: 1 / -1">
+              <label class="form-label">Target Voucher Combo</label>
+              <div class="ful-voucher-combo-grid">
+                ${VOUCHERS.map(v => `
+                  <label class="ful-combo-check">
+                    <input type="checkbox" name="targetVouchers" value="${escapeAttr(v)}"
+                      ${(owner.board.targetVouchers || []).some(tv => voucherKey(tv) === voucherKey(v)) ? 'checked' : ''} />
+                    <span>${escapeHtml(v)}</span>
+                  </label>
+                `).join('')}
+              </div>
+              <p class="form-hint">Auto-post fires when the pending queue has at least one request per checked voucher.</p>
+            </div>
+            <button type="submit" class="btn btn-secondary btn-sm" style="align-self: end">${icon('save')}<span>Save settings</span></button>
           </form>
           <div class="fulfillment-share-row">
             <input class="form-input mono" value="${escapeAttr(link)}" readonly />
@@ -355,26 +416,11 @@ function renderOwnerInvite(owner, invite) {
         ${revealedCode ? `<code class="invite-code">${escapeHtml(revealedCode)}</code>` : '<small>Code hidden. Regenerate to copy a new code.</small>'}
       </div>
       <div class="toolbar">
-        ${revealedCode ? iconButton('Copy invite code', 'copy', `type="button" data-copy-text="${escapeAttr(revealedCode)}"`, 'secondary', 'sm') : ''}
-        ${iconButton('Regenerate invite code', 'rotate', `type="button" data-regenerate-invite="${escapeAttr(invite.id)}"`, 'secondary', 'sm')}
-        ${iconButton('Revoke invite code', 'trash', `type="button" data-revoke-invite="${escapeAttr(invite.id)}" ${invite.active ? '' : 'disabled'}`, 'danger', 'sm')}
+        ${revealedCode ? `<button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(revealedCode)}">${icon('copy')}<span>Copy code</span></button>` : ''}
+        <button type="button" class="btn btn-secondary btn-sm" data-regenerate-invite="${escapeAttr(invite.id)}">${icon('rotate')}<span>Regenerate</span></button>
+        <button type="button" class="btn btn-danger btn-sm" data-revoke-invite="${escapeAttr(invite.id)}" ${invite.active ? '' : 'disabled'}>${icon('trash')}<span>Revoke</span></button>
       </div>
     </article>
-  `;
-}
-
-function renderOwnerCreateLauncher(owner) {
-  const stagedCount = owner.stagedCheckouts.length;
-  const stagedItems = owner.stagedCheckouts.reduce((sum, checkout) => sum + checkout.items.length, 0);
-  return `
-    <section class="recent-card fulfillment-create-launcher">
-      <div>
-        <span class="section-label">Account Cards</span>
-        <h3>Create Voucher Checkouts</h3>
-        <p class="fulfillment-muted">${stagedCount ? `${stagedCount} checkout draft${stagedCount === 1 ? '' : 's'} - ${stagedItems} item${stagedItems === 1 ? '' : 's'}` : 'Open the form only when adding a new account card.'}</p>
-      </div>
-      <button type="button" class="btn btn-primary" data-open-owner-create>${stagedCount ? 'Continue Draft' : 'Create Account Card'}</button>
-    </section>
   `;
 }
 
@@ -382,34 +428,41 @@ function renderOwnerCreatePanel(owner) {
   const customerOptions = getKnownOwnerCustomers(owner)
     .map(customer => `<option value="${escapeAttr(customer.name)}"></option>`)
     .join('');
-  const availableVoucherOptions = renderAvailableVoucherOptions(owner);
-  const staged = owner.stagedCheckouts.map(checkout => `
-    <article class="fulfillment-checkout-preview">
-      <div>
-        <strong>${escapeHtml(checkout.customerName)} - ${escapeHtml(checkout.voucher)}</strong>
-        <span>${peso(checkout.expectedTotal)} expected - ${checkout.items.length} item${checkout.items.length === 1 ? '' : 's'}</span>
-      </div>
-      ${iconButton('Remove checkout draft', 'trash', `type="button" data-remove-staged="${escapeAttr(checkout.tempId)}"`, 'ghost', 'sm')}
-    </article>
-  `).join('');
+  const voucherOptions = VOUCHERS.map(v => `<option>${escapeHtml(v)}</option>`).join('');
   return `
     <div class="fulfillment-create-modal" role="dialog" aria-modal="true" aria-labelledby="fulfillment-create-title">
       <button type="button" class="fulfillment-create-backdrop" data-close-owner-create aria-label="Close create account form"></button>
       <section class="fulfillment-create-sheet">
-        <button type="button" class="fulfillment-create-close" data-close-owner-create aria-label="Close create account form" title="Close create account form">${icon('x')}</button>
-        <div class="fulfillment-panel-head fulfillment-create-head">
-          <div>
-            <span class="section-label">Create Account Card</span>
-            <h3 id="fulfillment-create-title">Voucher Checkouts</h3>
-          </div>
+        <div class="ful-sheet-handle" aria-hidden="true"></div>
+        <button type="button" class="fulfillment-create-close" data-close-owner-create aria-label="Close" title="Close">${icon('x')}</button>
+        <div class="ful-create-header">
+          <span class="field-label">Pending Queue</span>
+          <h3 id="fulfillment-create-title">New Checkout Request</h3>
         </div>
-      <form id="fulfillment-card-form" class="fulfillment-step-form fulfillment-modal-step-form" data-step-form data-step-index="${escapeAttr(owner.createStepIndex || 0)}" novalidate>
-        <datalist id="fulfillment-customer-options">${customerOptions}</datalist>
-        ${renderStepProgress(3)}
-        <section class="fulfillment-step-panel is-active" data-step="0">
-          <div class="fulfillment-form-section">
-            <span class="section-label">Step 1 of 3</span>
-            <h4>Customer Details</h4>
+        <form id="fulfillment-card-form" class="fulfillment-step-form fulfillment-modal-step-form" data-step-form data-step-index="0" novalidate>
+          <datalist id="fulfillment-customer-options">${customerOptions}</datalist>
+          <div class="ful-create-stepper" data-stepper data-total="3">
+            <div class="ful-create-steps-row">
+              <div class="ful-create-step-item">
+                <span class="ful-create-step-dot is-active" data-step-dot="0">1</span>
+                <span class="ful-create-step-lbl">Customer</span>
+              </div>
+              <div class="ful-create-step-item">
+                <span class="ful-create-step-dot" data-step-dot="1">2</span>
+                <span class="ful-create-step-lbl">Checkout</span>
+              </div>
+              <div class="ful-create-step-item">
+                <span class="ful-create-step-dot" data-step-dot="2">3</span>
+                <span class="ful-create-step-lbl">Items</span>
+              </div>
+            </div>
+            <div class="ful-create-track"><span data-step-fill style="width:33.33%"></span></div>
+          </div>
+          <section class="fulfillment-step-panel is-active" data-step="0">
+            <div class="ful-create-panel-head">
+              <span class="ful-create-panel-kicker">Step 1 of 3</span>
+              <h4 class="ful-create-panel-title">Customer Details</h4>
+            </div>
             <div class="form-row cols-1 fulfillment-checkout-entry">
               <div class="form-group">
                 <label class="form-label">CU Name *</label>
@@ -424,16 +477,16 @@ function renderOwnerCreatePanel(owner) {
                 <input class="form-input" name="customerAddress" autocomplete="street-address" placeholder="Delivery address" required />
               </div>
             </div>
-          </div>
-        </section>
-        <section class="fulfillment-step-panel" data-step="1">
-          <div class="fulfillment-form-section">
-            <span class="section-label">Step 2 of 3</span>
-            <h4>Checkout Details</h4>
+          </section>
+          <section class="fulfillment-step-panel" data-step="1">
+            <div class="ful-create-panel-head">
+              <span class="ful-create-panel-kicker">Step 2 of 3</span>
+              <h4 class="ful-create-panel-title">Checkout Details</h4>
+            </div>
             <div class="form-row cols-1 fulfillment-checkout-entry">
               <div class="form-group">
                 <label class="form-label">Voucher *</label>
-                <select class="form-select" name="voucher" required ${availableVoucherOptions ? '' : 'disabled'}>${availableVoucherOptions || '<option value="">All vouchers already added</option>'}</select>
+                <select class="form-select" name="voucher" required>${voucherOptions}</select>
               </div>
               <div class="form-group">
                 <label class="form-label">Expected Total *</label>
@@ -444,12 +497,12 @@ function renderOwnerCreatePanel(owner) {
                 <input class="form-input" name="cartUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://..." required />
               </div>
             </div>
-          </div>
-        </section>
-        <section class="fulfillment-step-panel" data-step="2">
-          <div class="fulfillment-form-section">
-            <span class="section-label">Step 3 of 3</span>
-            <h4>Items & Notes</h4>
+          </section>
+          <section class="fulfillment-step-panel" data-step="2">
+            <div class="ful-create-panel-head">
+              <span class="ful-create-panel-kicker">Step 3 of 3</span>
+              <h4 class="ful-create-panel-title">Items & Notes</h4>
+            </div>
             <div class="form-row cols-1 fulfillment-checkout-entry">
               <div class="form-group">
                 <label class="form-label">Item Lines *</label>
@@ -460,50 +513,157 @@ function renderOwnerCreatePanel(owner) {
                 <textarea class="form-input fulfillment-textarea" name="checkoutNotes" placeholder="Instructions for this checkout"></textarea>
               </div>
             </div>
+          </section>
+          <div class="modal-footer fulfillment-footer fulfillment-step-footer ful-create-footer">
+            <div class="ful-create-back">
+              ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
+            </div>
+            <span class="fulfillment-step-count" data-step-count>Step 1 of 3</span>
+            <div class="ful-create-fwd">
+              ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
+              <button type="submit" class="btn btn-primary">${icon('send')} Submit Request</button>
+            </div>
           </div>
-        </section>
-        <div class="fulfillment-staged-list">${staged || '<p class="fulfillment-muted">Add one or more voucher checkouts to this account card.</p>'}</div>
-        <div class="modal-footer fulfillment-footer fulfillment-step-footer">
-          <span class="fulfillment-step-count" data-step-count>Step 1 of 3</span>
-          <div class="fulfillment-step-nav">
-            ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
-            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
-          </div>
-          <div class="fulfillment-step-actions">
-            <button type="button" class="btn btn-secondary" data-add-checkout ${availableVoucherOptions ? '' : 'disabled'}>Add Checkout</button>
-            ${iconButton('Clear checkout draft', 'trash', 'type="button" data-reset-staged', 'ghost')}
-            <button type="submit" class="btn btn-primary">Create</button>
-          </div>
-        </div>
-      </form>
+        </form>
       </section>
     </div>
   `;
 }
 
-function renderAvailableVoucherOptions(owner) {
-  const usedVoucherKeys = new Set(owner.stagedCheckouts.map(checkout => voucherKey(checkout.voucher)));
-  return VOUCHERS
-    .filter(voucher => !usedVoucherKeys.has(voucherKey(voucher)))
-    .map(voucher => `<option>${voucher}</option>`)
-    .join('');
+function renderOwnerPendingQueue(owner) {
+  const queueItems = owner.pendingCheckouts;
+  const pending = queueItems.filter(pc => pc.status === 'pending');
+  const target = owner.board?.targetVouchers || [];
+  const targetKeys = target.map(voucherKey);
+  const coveredKeys = new Set(pending.map(pc => voucherKey(pc.voucher)));
+  const coveredCount = targetKeys.filter(k => coveredKeys.has(k)).length;
+  const comboReady = target.length > 0 && coveredCount === targetKeys.length;
+
+  const progressLabel = target.length
+    ? `${coveredCount} / ${target.length} voucher${target.length === 1 ? '' : 's'} covered`
+    : 'No target combo set — configure in board settings';
+
+  return `
+    <section class="ful-pending-section">
+      <div class="ful-pending-head">
+        <div>
+          <span class="field-label">Pending Queue</span>
+          <h3>Checkout Requests</h3>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-sm" data-post-now ${pending.length ? '' : 'disabled'}>Post Now</button>
+        </div>
+      </div>
+      <div class="ful-pending-progress ${comboReady ? 'is-ready' : ''}">
+        <span class="ful-pending-progress-label">${escapeHtml(progressLabel)}</span>
+        ${target.length ? `
+          <div class="ful-pending-combo-row">
+            ${target.map(v => {
+              const covered = coveredKeys.has(voucherKey(v));
+              return `<span class="ful-combo-pip ${covered ? 'is-covered' : ''}">${escapeHtml(v)}</span>`;
+            }).join('')}
+            ${comboReady ? '<span class="badge available">Ready to auto-post</span>' : ''}
+          </div>
+        ` : ''}
+      </div>
+      <div class="ful-pending-list">
+        ${queueItems.length
+          ? queueItems.map(pc => renderPendingCheckoutRow(pc)).join('')
+          : '<p class="empty-note">No pending requests. Add a checkout request to get started.</p>'
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderPendingCheckoutRow(pc) {
+  const isFailed = pc.status === 'failed';
+  return `
+    <article class="ful-pending-row${isFailed ? ' ful-pending-row--failed' : ''}">
+      <details class="ful-pending-edit">
+        <summary class="ful-pending-row-top">
+          <div class="ful-pending-row-info">
+            <span class="ful-voucher-pill">${escapeHtml(pc.voucher)}</span>
+            <strong>${escapeHtml(pc.customerName)}</strong>
+            <span class="ful-pending-meta">${peso(pc.expectedTotal)} · ${pc.items.length} item${pc.items.length === 1 ? '' : 's'}</span>
+          </div>
+          <span class="ful-pending-row-end">
+            <span class="badge ${isFailed ? 'is-cannot_fulfill' : 'is-open'}">${isFailed ? 'Failed — edit needed' : 'Pending'}</span>
+            <span class="ful-pending-chevron" aria-hidden="true">${icon('chevron-right')}</span>
+          </span>
+        </summary>
+        <form data-owner-edit-pending="${escapeAttr(pc.id)}" novalidate>
+          ${isFailed ? '<p class="ful-pending-edit-hint">This checkout couldn’t be fulfilled. Edit and save to return it to the auto-publish pool.</p>' : ''}
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">CU Name *</label>
+              <input class="form-input" name="customerName" autocomplete="name" value="${escapeAttr(pc.customerName)}" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Contact *</label>
+              <input class="form-input" name="customerContact" type="tel" inputmode="tel" autocomplete="tel" value="${escapeAttr(pc.customerContact)}" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Address *</label>
+            <input class="form-input" name="customerAddress" autocomplete="street-address" value="${escapeAttr(pc.customerAddress)}" required />
+          </div>
+          <div class="form-row ful-2col">
+            <div class="form-group">
+              <label class="form-label">Voucher *</label>
+              <select class="form-select" name="voucher" required>${VOUCHERS.map(v => `<option ${voucherKey(v) === voucherKey(pc.voucher) ? 'selected' : ''}>${v}</option>`).join('')}</select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Expected Total *</label>
+              <input class="form-input" name="expectedTotal" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(pc.expectedTotal)}" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cart Link *</label>
+            <input class="form-input" name="cartUrl" type="url" inputmode="url" autocomplete="url" value="${escapeAttr(pc.cartUrl)}" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Item Lines *</label>
+            <textarea class="form-input fulfillment-textarea" name="itemLines" required>${escapeHtml(pc.items.map(item => item.label).join('\n'))}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Checkout Notes</label>
+            <textarea class="form-input fulfillment-textarea" name="checkoutNotes">${escapeHtml(pc.notes || '')}</textarea>
+          </div>
+          <div class="ful-pending-edit-actions">
+            <button type="submit" class="btn btn-secondary btn-sm">${icon('save')}<span>Save request</span></button>
+            <button type="button" class="btn btn-ghost btn-sm ful-danger" data-remove-pending="${escapeAttr(pc.id)}">${icon('trash')}<span>Remove</span></button>
+          </div>
+        </form>
+      </details>
+    </article>
+  `;
 }
 
 function renderOwnerCards(owner) {
   if (!owner.cards.length) {
-    return '<section class="recent-card"><p class="empty-note">No account cards yet.</p></section>';
+    return `
+      <section class="ful-cards-section">
+        <div class="ful-cards-head">
+          <div>
+            <span class="field-label">Account Cards</span>
+            <h3>No cards yet</h3>
+          </div>
+        </div>
+        <p class="empty-note" style="text-align:left;padding:16px 0 4px;">Cards will appear here once a pending request batch is auto-posted or manually posted.</p>
+      </section>
+    `;
   }
   const groups = getOwnerCardGroups(owner.cards);
   const selected = owner.cardFilter && groups[owner.cardFilter] ? owner.cardFilter : defaultOwnerCardFilter(groups);
   const visibleCards = groups[selected]?.cards || groups.active.cards;
   return `
-    <section class="recent-card fulfillment-card-browser">
-      <div class="fulfillment-panel-head">
+    <section class="ful-cards-section">
+      <div class="ful-cards-head">
         <div>
-          <span class="section-label">Account Cards</span>
+          <span class="field-label">Account Cards</span>
           <h3>${escapeHtml(groups[selected]?.label || 'Active')}</h3>
         </div>
-        <span class="badge is-open">${visibleCards.length}</span>
       </div>
       <div class="fulfillment-filter-row" role="tablist" aria-label="Fulfillment card filters">
         ${renderOwnerCardFilterButton('active', 'Active', groups.active.cards.length, selected)}
@@ -554,31 +714,63 @@ function defaultOwnerCardFilter(groups) {
   return 'all';
 }
 
+function firstName(full) {
+  return String(full || '').trim().split(/\s+/)[0] || 'Customer';
+}
+
 function renderOwnerCard(owner, card) {
   const checkouts = owner.checkoutsByCard.get(card.id) || [];
   const fulfilled = checkouts.filter(checkout => checkout.status === 'fulfilled').length;
   const failed = checkouts.filter(checkout => checkout.status === 'cannot_fulfill').length;
-  const approved = checkouts.filter(checkout => checkout.status === 'approved').length;
+  const open = checkouts.filter(checkout => !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status)).length;
   const totalItems = checkouts.reduce((sum, checkout) => sum + checkout.items.length, 0);
   const expectedTotal = checkouts.reduce((sum, checkout) => sum + Number(checkout.expectedTotal || 0), 0);
+  const needsReview = card.status === 'surrendered';
+  const total = checkouts.length;
+  const customerCounts = [];
+  const seenCustomers = new Map();
+  for (const co of checkouts) {
+    const name = (co.customerName || 'Customer').trim();
+    if (!seenCustomers.has(name)) { seenCustomers.set(name, customerCounts.length); customerCounts.push({ name, count: 0 }); }
+    customerCounts[seenCustomers.get(name)].count++;
+  }
   return `
-    <article class="recent-card fulfillment-owner-card">
-      <button type="button" class="fulfillment-owner-summary" data-toggle-owner-card="${escapeAttr(card.id)}" aria-haspopup="dialog">
-        <div>
-          <span class="section-label">${escapeHtml(card.generatedEmail || card.surrenderedEmail || 'No surrender email yet')}</span>
-          <h3>${escapeHtml(card.bookerName || 'Unclaimed account')}</h3>
-          <p class="fulfillment-muted">${fulfilled} fulfilled - ${failed} failed - ${approved} approved</p>
-          <div class="fulfillment-card-summary-row">
-            <span><strong>${checkouts.length}</strong> checkout${checkouts.length === 1 ? '' : 's'}</span>
-            <span><strong>${totalItems}</strong> item${totalItems === 1 ? '' : 's'}</span>
-            <span><strong>${peso(expectedTotal)}</strong> expected</span>
-          </div>
-        </div>
-        <div class="fulfillment-owner-summary-side">
+    <article class="ful-card${needsReview ? ' ful-card--review' : ''}">
+      <button type="button" class="ful-card-btn" data-toggle-owner-card="${escapeAttr(card.id)}" aria-haspopup="dialog">
+        <div class="ful-card-top">
           <span class="badge ${statusClass(card.status)}">${labelStatus(card.status)}</span>
-          <span class="booker-card-action is-link" aria-hidden="true">${icon('chevron-right')}</span>
+          <span class="ful-card-email">${escapeHtml(card.generatedEmail || card.surrenderedEmail || '')}</span>
+        </div>
+        <div class="ful-card-mid">
+          <span class="ful-card-name">${escapeHtml(card.bookerName || 'Unclaimed account')}</span>
+          ${icon('chevron-right')}
+        </div>
+        <div class="ful-card-bottom">
+          <div class="ful-card-totals">
+            <span>${total} checkout${total === 1 ? '' : 's'}</span>
+            <span class="ful-sep" aria-hidden="true">·</span>
+            <span>${totalItems} item${totalItems === 1 ? '' : 's'}</span>
+            <span class="ful-sep" aria-hidden="true">·</span>
+            <span>${peso(expectedTotal)} expected</span>
+          </div>
+          ${total ? `
+          <div class="ful-card-progress">
+            ${fulfilled ? `<span class="ful-progress-done">${fulfilled} done</span>` : ''}
+            ${failed ? `<span class="ful-progress-fail">${failed} failed</span>` : ''}
+            ${open ? `<span class="ful-progress-open">${open} open</span>` : ''}
+          </div>` : ''}
+          ${customerCounts.length ? `
+          <div class="ful-card-customers">
+            ${customerCounts.map(c => `<span class="ful-card-customer-pill">${escapeHtml(firstName(c.name))}${c.count > 1 ? ` <span class="ful-card-customer-count">×${c.count}</span>` : ''}</span>`).join('')}
+          </div>` : ''}
         </div>
       </button>
+      ${total ? `
+      <div class="ful-card-bar" role="progressbar" aria-label="Checkout fulfillment">
+        ${fulfilled > 0 ? `<span class="ful-bar-done" style="flex:${fulfilled}"></span>` : ''}
+        ${failed > 0 ? `<span class="ful-bar-fail" style="flex:${failed}"></span>` : ''}
+        ${open > 0 ? `<span class="ful-bar-open" style="flex:${open}"></span>` : ''}
+      </div>` : ''}
     </article>
   `;
 }
@@ -589,36 +781,55 @@ function renderOwnerCardModal(owner) {
   const checkouts = owner.checkoutsByCard.get(card.id) || [];
   const fulfilled = checkouts.filter(checkout => checkout.status === 'fulfilled').length;
   const failed = checkouts.filter(checkout => checkout.status === 'cannot_fulfill').length;
-  const approved = checkouts.filter(checkout => checkout.status === 'approved').length;
   const totalItems = checkouts.reduce((sum, checkout) => sum + checkout.items.length, 0);
   const expectedTotal = checkouts.reduce((sum, checkout) => sum + Number(checkout.expectedTotal || 0), 0);
   return `
     <div class="fulfillment-create-modal fulfillment-card-modal" role="dialog" aria-modal="true" aria-labelledby="fulfillment-card-modal-title">
       <button type="button" class="fulfillment-create-backdrop" data-close-owner-card aria-label="Close account card details"></button>
       <section class="fulfillment-create-sheet fulfillment-card-sheet">
-        <button type="button" class="fulfillment-create-close" data-close-owner-card aria-label="Close account card details" title="Close account card details">${icon('x')}</button>
-        <div class="fulfillment-panel-head fulfillment-create-head">
-          <div>
-            <span class="section-label">${escapeHtml(card.generatedEmail || card.surrenderedEmail || 'No surrender email yet')}</span>
-            <h3 id="fulfillment-card-modal-title">${escapeHtml(card.bookerName || 'Unclaimed account')}</h3>
-            <p class="fulfillment-muted">${fulfilled} fulfilled - ${failed} failed - ${approved} approved</p>
+        <div class="ful-sheet-head">
+          <div class="ful-sheet-head-row">
+            <div class="ful-modal-title-text">
+              <span class="field-label">${escapeHtml(card.generatedEmail || card.surrenderedEmail || 'No surrender email yet')}</span>
+              <h3 id="fulfillment-card-modal-title">${escapeHtml(card.bookerName || 'Unclaimed account')}</h3>
+            </div>
+            <div class="ful-sheet-head-meta">
+              <span class="badge ${statusClass(card.status)}">${labelStatus(card.status)}</span>
+              <button type="button" class="ful-sheet-close" data-close-owner-card aria-label="Close account card details" title="Close account card details">${icon('x')}</button>
+            </div>
           </div>
-          <span class="badge ${statusClass(card.status)}">${labelStatus(card.status)}</span>
+          <div class="ful-modal-stats">
+            <span><strong>${checkouts.length}</strong> checkout${checkouts.length === 1 ? '' : 's'}</span>
+            <span class="ful-sep">·</span>
+            <span><strong>${totalItems}</strong> item${totalItems === 1 ? '' : 's'}</span>
+            <span class="ful-sep">·</span>
+            <span><strong>${peso(expectedTotal)}</strong> expected</span>
+            ${fulfilled ? `<span class="ful-sep">·</span><span class="ful-progress-done">${fulfilled} fulfilled</span>` : ''}
+            ${failed ? `<span class="ful-sep">·</span><span class="ful-progress-fail">${failed} failed</span>` : ''}
+          </div>
         </div>
-        <div class="fulfillment-card-summary-row fulfillment-card-modal-stats">
-          <span><strong>${checkouts.length}</strong> checkout${checkouts.length === 1 ? '' : 's'}</span>
-          <span><strong>${totalItems}</strong> item${totalItems === 1 ? '' : 's'}</span>
-          <span><strong>${peso(expectedTotal)}</strong> expected</span>
-        </div>
-        <div class="fulfillment-meta-grid">
-          <div><span class="field-label">Booker Account</span><span class="field-main wrap">${escapeHtml(card.accountEmail || 'Hidden until surrender')}</span></div>
-          <div><span class="field-label">Surrendered Email</span><span class="field-main wrap">${escapeHtml(card.surrenderedEmail || 'Not yet')}</span></div>
-          <div><span class="field-label">Expiry</span><span class="field-main wrap">${card.expiresAt ? escapeHtml(formatDateTimeValue(card.expiresAt)) : 'Not yet'}</span></div>
-          <div><span class="field-label">Unused Vouchers</span><span class="field-main wrap">${escapeHtml((card.vouchers || []).join(', ') || 'None saved')}</span></div>
+        <div class="ful-card-info">
+          <div class="ful-info-field">
+            <span class="ful-info-label">Booker Account</span>
+            <span class="ful-info-value">${escapeHtml(card.accountEmail || 'Hidden until surrender')}</span>
+          </div>
+          <div class="ful-info-field">
+            <span class="ful-info-label">Surrendered Email</span>
+            <span class="ful-info-value">${escapeHtml(card.surrenderedEmail || 'Not yet')}</span>
+          </div>
+          <div class="ful-info-field">
+            <span class="ful-info-label">Expiry</span>
+            <span class="ful-info-value">${card.expiresAt ? escapeHtml(formatDateTimeValue(card.expiresAt)) : 'Not yet'}</span>
+          </div>
+          <div class="ful-info-field">
+            <span class="ful-info-label">Unused Vouchers</span>
+            <span class="ful-info-value">${escapeHtml((card.vouchers || []).join(', ') || 'None saved')}</span>
+          </div>
         </div>
         ${card.status === 'surrendered' && fulfilled ? renderCardApprovalSettings(card) : ''}
+        ${checkouts.length ? `<div class="ful-section-divider"><span>${checkouts.length} checkout${checkouts.length === 1 ? '' : 's'}</span></div>` : ''}
         <div class="list-stack fulfillment-owner-checkouts">
-          ${checkouts.map(checkout => renderOwnerCheckout(card, checkout)).join('')}
+          ${checkouts.map(checkout => renderOwnerCheckout(owner, card, checkout)).join('')}
         </div>
         <div class="modal-footer fulfillment-footer fulfillment-card-modal-footer">
           <button type="button" class="btn btn-primary" data-approve-card="${escapeAttr(card.id)}" ${card.status !== 'surrendered' ? 'disabled' : ''}>Approve Fulfilled Checkouts</button>
@@ -628,27 +839,82 @@ function renderOwnerCardModal(owner) {
   `;
 }
 
-function renderOwnerCheckout(card, checkout) {
+function renderOwnerCheckout(owner, card, checkout) {
   const fulfilled = checkout.status === 'fulfilled';
   const failed = checkout.status === 'cannot_fulfill';
-  return `
-    <article class="fulfillment-checkout-card">
-      <div class="fulfillment-checkout-main">
-        <div>
-          <div class="fulfillment-checkout-title">${escapeHtml(checkout.customerName || 'Customer')} - ${escapeHtml(checkout.voucher || 'Voucher')}</div>
-          <p class="fulfillment-muted">${escapeHtml(checkout.customerContact || '')} ${checkout.customerAddress ? '- ' + escapeHtml(checkout.customerAddress) : ''}</p>
-          <p class="fulfillment-muted">${peso(checkout.expectedTotal)} expected - ${checkout.items.length} item${checkout.items.length === 1 ? '' : 's'}</p>
-          ${checkout.notes ? `<p class="booker-note">${escapeHtml(checkout.notes)}</p>` : ''}
-          ${failed ? `<p class="booker-lock">Cannot fulfill: ${escapeHtml(checkout.cannotFulfillReason || 'No reason saved')}</p>` : ''}
-          <div class="toolbar">
-            ${checkout.cartUrl ? iconLink('Open cart', 'external', checkout.cartUrl, 'target="_blank" rel="noreferrer"', 'secondary', 'sm') : ''}
-            ${failed || fulfilled ? iconButton('Reopen checkout', 'rotate', `type="button" data-reopen-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}"`, 'ghost', 'sm') : ''}
-          </div>
+  const approved = checkout.status === 'approved';
+  const isReviewCard = card.status === 'surrendered';
+  const isActiveCard = !['surrendered', 'approved'].includes(card.status);
+
+  const summary = `
+    <div class="ful-pending-row-info">
+      <span class="ful-voucher-pill">${escapeHtml(checkout.voucher || 'Voucher')}</span>
+      <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
+      <span class="ful-pending-meta">${peso(checkout.expectedTotal)} · ${checkout.items.length} item${checkout.items.length === 1 ? '' : 's'}</span>
+    </div>`;
+  const statusBadge = `<span class="badge ${statusClass(checkout.status)}">${labelStatus(checkout.status)}</span>`;
+
+  if (approved) {
+    return `
+      <article class="ful-pending-row ful-checkout-row">
+        <div class="ful-pending-row-top ful-pending-row-top--static">
+          ${summary}
+          <span class="ful-pending-row-end">${statusBadge}</span>
         </div>
-      </div>
-      <span class="badge ${statusClass(checkout.status)}">${labelStatus(checkout.status)}</span>
-      ${fulfilled ? renderReviewInputs(checkout) : ''}
-      ${checkout.status !== 'approved' ? renderOwnerCheckoutEdit(card, checkout) : ''}
+      </article>
+    `;
+  }
+
+  const contextBlock = `
+    ${checkout.customerAddress ? `<p class="ful-checkout-address">${escapeHtml(checkout.customerAddress)}</p>` : ''}
+    ${checkout.notes ? `<p class="ful-checkout-note">${escapeHtml(checkout.notes)}</p>` : ''}
+    ${failed ? `<p class="ful-checkout-fail-reason">Cannot fulfill: ${escapeHtml(checkout.cannotFulfillReason || 'No reason saved')}</p>` : ''}`;
+  const actionsRow = (checkout.cartUrl || failed || fulfilled) ? `
+    <div class="ful-checkout-actions">
+      ${checkout.cartUrl ? `<a href="${escapeAttr(checkout.cartUrl)}" class="btn btn-secondary btn-sm" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart</span></a>` : ''}
+      ${failed || fulfilled ? `<button type="button" class="btn btn-ghost btn-sm" data-reopen-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}">${icon('rotate')}<span>Reopen</span></button>` : ''}
+    </div>` : '';
+
+  let editor = '';
+  let defaultOpen = false;
+  if (isReviewCard) {
+    if (fulfilled) {
+      editor = renderReviewInputs(checkout);
+      defaultOpen = true;
+    } else if (failed) {
+      editor = '<p class="ful-pending-edit-hint">Replace is available on active cards only.</p>';
+    }
+  } else if (isActiveCard) {
+    if (failed) {
+      const matches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
+      editor = `
+        <div class="ful-replace-box">
+          <button type="button" class="btn btn-primary btn-sm" data-replace-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}" ${matches.length ? '' : 'disabled'}>${icon('refresh')}<span>Replace with pending request</span></button>
+          <p class="ful-pending-edit-hint">${matches.length
+            ? `${matches.length} pending ${escapeHtml(checkout.voucher)} request${matches.length === 1 ? '' : 's'} available to swap in.`
+            : `No pending ${escapeHtml(checkout.voucher)} request available to replace this.`}</p>
+        </div>`;
+    } else {
+      editor = renderOwnerCheckoutEdit(card, checkout);
+    }
+  }
+
+  return `
+    <article class="ful-pending-row ful-checkout-row">
+      <details class="ful-pending-edit"${defaultOpen ? ' open' : ''}>
+        <summary class="ful-pending-row-top">
+          ${summary}
+          <span class="ful-pending-row-end">
+            ${statusBadge}
+            <span class="ful-pending-chevron" aria-hidden="true">${icon('chevron-right')}</span>
+          </span>
+        </summary>
+        <div class="ful-checkout-expand">
+          ${contextBlock}
+          ${actionsRow}
+          ${editor}
+        </div>
+      </details>
     </article>
   `;
 }
@@ -689,29 +955,30 @@ function renderReviewInputs(checkout) {
 
 function renderOwnerCheckoutEdit(card, checkout) {
   return `
-    <details class="fulfillment-edit-box">
-      <summary>Edit checkout</summary>
-      <form data-owner-edit-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}" novalidate>
-        <div class="form-row cols-1">
-          <div class="form-group">
-            <label class="form-label">CU Name *</label>
-            <input class="form-input" name="customerName" autocomplete="name" value="${escapeAttr(checkout.customerName)}" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Contact *</label>
-            <input class="form-input" name="customerContact" type="tel" inputmode="tel" autocomplete="tel" value="${escapeAttr(checkout.customerContact)}" required />
+      <form class="ful-checkout-edit-form" data-owner-edit-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}" novalidate>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">CU Name *</label>
+              <input class="form-input" name="customerName" autocomplete="name" value="${escapeAttr(checkout.customerName)}" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Contact *</label>
+              <input class="form-input" name="customerContact" type="tel" inputmode="tel" autocomplete="tel" value="${escapeAttr(checkout.customerContact)}" required />
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Address *</label>
             <input class="form-input" name="customerAddress" autocomplete="street-address" value="${escapeAttr(checkout.customerAddress)}" required />
           </div>
-          <div class="form-group">
-            <label class="form-label">Voucher *</label>
-            <select class="form-select" name="voucher" required>${VOUCHERS.map(v => `<option ${voucherKey(v) === voucherKey(checkout.voucher) ? 'selected' : ''}>${v}</option>`).join('')}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Expected Total *</label>
-            <input class="form-input" name="expectedTotal" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.expectedTotal)}" required />
+          <div class="form-row ful-2col">
+            <div class="form-group">
+              <label class="form-label">Voucher *</label>
+              <select class="form-select" name="voucher" required>${VOUCHERS.map(v => `<option ${voucherKey(v) === voucherKey(checkout.voucher) ? 'selected' : ''}>${v}</option>`).join('')}</select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Expected Total *</label>
+              <input class="form-input" name="expectedTotal" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.expectedTotal)}" required />
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Cart Link *</label>
@@ -725,21 +992,15 @@ function renderOwnerCheckoutEdit(card, checkout) {
             <label class="form-label">Checkout Notes</label>
             <textarea class="form-input fulfillment-textarea" name="checkoutNotes">${escapeHtml(checkout.notes || '')}</textarea>
           </div>
-        </div>
-        ${iconButton('Save checkout', 'save', 'type="submit"', 'secondary', 'sm')}
+        <button type="submit" class="btn btn-secondary btn-sm">${icon('save')}<span>Save checkout</span></button>
       </form>
-    </details>
   `;
 }
 
 async function handleOwnerClick(event, owner) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (handleStepClick(event, target)) {
-    const form = target.closest('[data-step-form]');
-    if (form?.id === 'fulfillment-card-form') owner.createStepIndex = getStepIndex(form);
-    return;
-  }
+  if (handleStepClick(event, target)) return;
   if (target.closest('[data-open-owner-create]')) {
     owner.createModalOpen = true;
     renderOwner(owner);
@@ -788,25 +1049,23 @@ async function handleOwnerClick(event, owner) {
     await revokeBookerInvite(owner, revokeInviteId);
     return;
   }
-  if (target.closest('[data-add-checkout]')) {
-    addOwnerStagedCheckout(owner);
+  if (target.closest('[data-post-now]')) {
+    await postNowFromPending(owner);
     return;
   }
-  if (target.closest('[data-reset-staged]')) {
-    owner.stagedCheckouts = [];
-    owner.createStepIndex = 0;
-    renderOwner(owner);
-    return;
-  }
-  const removeId = target.closest('[data-remove-staged]')?.getAttribute('data-remove-staged');
-  if (removeId) {
-    owner.stagedCheckouts = owner.stagedCheckouts.filter(checkout => checkout.tempId !== removeId);
-    renderOwner(owner);
+  const removePendingId = target.closest('[data-remove-pending]')?.getAttribute('data-remove-pending');
+  if (removePendingId) {
+    await removePendingCheckout(owner, removePendingId);
     return;
   }
   const reopenBtn = target.closest('[data-reopen-checkout]');
   if (reopenBtn) {
     await reopenCheckout(owner, reopenBtn.getAttribute('data-card-id'), reopenBtn.getAttribute('data-reopen-checkout'));
+    return;
+  }
+  const replaceBtn = target.closest('[data-replace-checkout]');
+  if (replaceBtn) {
+    await replaceFailedCheckout(owner, replaceBtn.getAttribute('data-card-id'), replaceBtn.getAttribute('data-replace-checkout'));
     return;
   }
   const approveId = target.closest('[data-approve-card]')?.getAttribute('data-approve-card');
@@ -828,8 +1087,15 @@ async function handleOwnerSubmit(event, owner) {
   }
   if (event.target.id === 'fulfillment-card-form') {
     event.preventDefault();
-    if (!validateOwnerCreateForm(event.target, owner)) return;
-    await createFulfillmentCard(owner, event.target);
+    if (!validateFormFields(event.target, { show: true })) return;
+    await submitPendingCheckout(owner, event.target);
+    return;
+  }
+  const pendingEditId = event.target.getAttribute('data-owner-edit-pending');
+  if (pendingEditId) {
+    event.preventDefault();
+    if (!validateFormFields(event.target, { show: true })) return;
+    await savePendingCheckout(owner, pendingEditId, event.target);
     return;
   }
   const checkoutId = event.target.getAttribute('data-owner-edit-checkout');
@@ -857,12 +1123,15 @@ async function createOwnerBoard(owner) {
 }
 
 async function saveBoardSettings(owner, form) {
-  const gmailBase = String(new FormData(form).get('gmailBase') || '').trim().toLowerCase();
+  const data = new FormData(form);
+  const gmailBase = String(data.get('gmailBase') || '').trim().toLowerCase();
+  const targetVouchers = data.getAll('targetVouchers').map(v => String(v).trim()).filter(Boolean);
   await updateDoc(boardRef(owner.board.id), {
     gmailBase,
+    targetVouchers,
     updatedAt: serverTimestamp()
   });
-  showToast('Gmail base saved', 'success');
+  showToast('Board settings saved', 'success');
   await loadOwnerBoard(owner, { force: true });
 }
 
@@ -948,52 +1217,17 @@ async function revokeBookerInvite(owner, inviteHash) {
   }
 }
 
-function addOwnerStagedCheckout(owner) {
-  const form = document.getElementById('fulfillment-card-form');
-  if (!validateFormFields(form, { show: true })) return;
+async function submitPendingCheckout(owner, form) {
+  if (!owner.board) return;
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
-  if (owner.stagedCheckouts.some(item => voucherKey(item.voucher) === voucherKey(checkout.voucher))) {
-    showToast('That voucher is already used on this account card.', 'error');
-    return;
-  }
-  owner.stagedCheckouts.push({ ...checkout, tempId: randomToken(8) });
-  clearCheckoutEntry(form);
-  owner.createStepIndex = 0;
-  renderOwner(owner);
-}
-
-function validateOwnerCreateForm(form, owner) {
-  if (!owner.stagedCheckouts.length) return validateFormFields(form, { show: true });
-  return true;
-}
-
-async function createFulfillmentCard(owner, form) {
-  if (!owner.board) return;
-  if (!owner.stagedCheckouts.length) {
-    const checkout = readCheckoutEntry(form, { silent: true });
-    if (checkout) owner.stagedCheckouts.push({ ...checkout, tempId: randomToken(8) });
-  }
-  if (!owner.stagedCheckouts.length) {
-    showToast('Add at least one checkout before creating the account card.', 'error');
-    return;
-  }
   const user = getAuthUser();
-  const nextCardRef = doc(cardsRef(owner.board.id));
-  const batch = writeBatch(getDb());
-  batch.set(nextCardRef, {
-    ownerUid: user.uid,
-    status: 'open',
-    accountCost: 190,
-    notes: '',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
-  owner.stagedCheckouts.forEach(checkout => {
-    const nextCheckoutRef = doc(checkoutsRef(owner.board.id, nextCardRef.id));
-    batch.set(nextCheckoutRef, {
+  try {
+    const ref = doc(pendingCheckoutsRef(owner.board.id));
+    await setDoc(ref, {
       ownerUid: user.uid,
-      status: 'open',
+      status: 'pending',
+      assignedCardId: '',
       customerName: checkout.customerName,
       customerContact: checkout.customerContact,
       customerAddress: checkout.customerAddress,
@@ -1005,15 +1239,165 @@ async function createFulfillmentCard(owner, form) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
+    owner.createModalOpen = false;
+    form.reset();
+    showToast('Checkout request added to queue', 'success');
+  } catch (err) {
+    console.warn('pending checkout submit failed:', err);
+    showToast('Failed to submit request. Try again.', 'error');
+  }
+}
+
+async function savePendingCheckout(owner, pendingId, form) {
+  if (!owner.board) return;
+  const checkout = readCheckoutEntry(form);
+  if (!checkout) return;
+  try {
+    await updateDoc(pendingCheckoutRef(owner.board.id, pendingId), {
+      ...checkout,
+      status: 'pending',
+      updatedAt: serverTimestamp()
+    });
+    showToast('Checkout request updated', 'success');
+  } catch (err) {
+    console.warn('pending checkout update failed:', err);
+    showToast('Failed to update request. Try again.', 'error');
+  }
+}
+
+async function removePendingCheckout(owner, pendingId) {
+  if (!owner.board) return;
+  const pc = owner.pendingCheckouts.find(p => p.id === pendingId);
+  if (!pc) return;
+  if (!(await showConfirm(`Remove ${firstName(pc.customerName)}’s ${pc.voucher} request from the queue?`, {
+    confirmLabel: 'Remove',
+    danger: true
+  }))) return;
+  try {
+    await deleteDoc(pendingCheckoutRef(owner.board.id, pendingId));
+    showToast('Request removed from queue', 'success');
+  } catch (err) {
+    console.warn('pending checkout delete failed:', err);
+    showToast('Failed to remove request. Try again.', 'error');
+  }
+}
+
+function subscribePendingCheckouts(owner) {
+  if (owner.pendingUnsub) { owner.pendingUnsub(); owner.pendingUnsub = null; }
+  if (!owner.board) return;
+  const q = query(
+    pendingCheckoutsRef(owner.board.id),
+    where('status', 'in', ['pending', 'failed']),
+    orderBy('createdAt', 'asc')
+  );
+  owner.pendingUnsub = onSnapshot(q, async snap => {
+    owner.pendingCheckouts = snap.docs.map(d => normalizePendingCheckout(d.id, d.data()));
+    renderOwner(owner);
+    await checkAndAutoGroup(owner);
+  }, err => {
+    console.warn('pending checkout snapshot error:', err);
+    showToast('Pending queue sync stopped — refresh to reconnect.', 'error');
   });
-  batch.update(boardRef(owner.board.id), { updatedAt: serverTimestamp() });
-  await batch.commit();
-  owner.stagedCheckouts = [];
-  owner.createStepIndex = 0;
-  owner.createModalOpen = false;
-  form.reset();
-  showToast('Account card created', 'success');
-  await loadOwnerBoard(owner, { force: true });
+}
+
+function selectPendingBatch(pendingCheckouts, targetVouchers) {
+  const usedIds = new Set();
+  const selected = [];
+  for (const target of targetVouchers) {
+    const match = pendingCheckouts.find(pc => !usedIds.has(pc.id) && voucherKey(pc.voucher) === voucherKey(target));
+    if (!match) return null;
+    usedIds.add(match.id);
+    selected.push(match);
+  }
+  return selected;
+}
+
+async function checkAndAutoGroup(owner) {
+  if (autoGroupInFlight) return;
+  if (!owner.board?.targetVouchers?.length) return;
+  const pending = owner.pendingCheckouts.filter(pc => pc.status === 'pending');
+  if (!pending.length) return;
+  const batch = selectPendingBatch(pending, owner.board.targetVouchers);
+  if (!batch) return;
+  autoGroupInFlight = true;
+  try {
+    await createCardFromPending(owner, batch);
+  } finally {
+    autoGroupInFlight = false;
+  }
+}
+
+async function createCardFromPending(owner, pendingBatch) {
+  const user = getAuthUser();
+  const db = getDb();
+  const nextCardRef = doc(cardsRef(owner.board.id));
+  try {
+    await runTransaction(db, async transaction => {
+      const pendingRefs = pendingBatch.map(pc => pendingCheckoutRef(owner.board.id, pc.id));
+      const pendingSnaps = await Promise.all(pendingRefs.map(r => transaction.get(r)));
+      for (const snap of pendingSnaps) {
+        if (!snap.exists()) throw new Error('A pending checkout was deleted before it could be assigned.');
+        if (snap.data().status !== 'pending') throw new Error('already assigned');
+      }
+      const timestamp = serverTimestamp();
+      transaction.set(nextCardRef, {
+        ownerUid: user.uid,
+        status: 'open',
+        accountCost: 190,
+        notes: '',
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      for (let i = 0; i < pendingSnaps.length; i++) {
+        const pc = pendingSnaps[i].data();
+        const coRef = doc(checkoutsRef(owner.board.id, nextCardRef.id));
+        transaction.set(coRef, {
+          ownerUid: user.uid,
+          status: 'open',
+          customerName: pc.customerName,
+          customerContact: pc.customerContact,
+          customerAddress: pc.customerAddress,
+          voucher: pc.voucher,
+          expectedTotal: pc.expectedTotal,
+          cartUrl: pc.cartUrl,
+          items: pc.items,
+          notes: pc.notes,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        });
+        transaction.update(pendingRefs[i], {
+          status: 'assigned',
+          assignedCardId: nextCardRef.id,
+          updatedAt: timestamp
+        });
+      }
+      transaction.update(boardRef(owner.board.id), { updatedAt: timestamp });
+    });
+    showToast('Account card created from pending queue', 'success');
+    await loadOwnerCards(owner);
+    renderOwner(owner);
+  } catch (err) {
+    if (String(err.message).includes('already assigned')) {
+      console.warn('Auto-group skipped: pending checkout already assigned');
+    } else {
+      console.warn('createCardFromPending failed:', err);
+      showToast(err.message || 'Auto-create failed. Will retry on next queue update.', 'error');
+    }
+  }
+}
+
+async function postNowFromPending(owner) {
+  const pending = owner.pendingCheckouts.filter(pc => pc.status === 'pending');
+  if (!pending.length) {
+    showToast('No pending requests to post.', 'error');
+    return;
+  }
+  const confirmed = await showConfirm(
+    `Post ${pending.length} pending request${pending.length === 1 ? '' : 's'} as a card now?`,
+    { confirmLabel: 'Post Now' }
+  );
+  if (!confirmed) return;
+  await createCardFromPending(owner, pending);
 }
 
 function readCheckoutEntry(form, options = {}) {
@@ -1130,7 +1514,7 @@ function getKnownOwnerCustomers(owner) {
   };
   window.POS?.getState?.().orders?.forEach(addCustomer);
   owner.checkoutsByCard.forEach(checkouts => checkouts.forEach(addCustomer));
-  owner.stagedCheckouts.forEach(addCustomer);
+  owner.pendingCheckouts.forEach(addCustomer);
   return [...customers.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -1171,14 +1555,10 @@ function setStepFormIndex(form, requestedIndex, options = {}) {
   const prev = form.querySelector('[data-step-prev]');
   const next = form.querySelector('[data-step-next]');
   const submit = form.querySelector('button[type="submit"]');
-  const addCheckout = form.querySelector('[data-add-checkout]');
-  const resetStaged = form.querySelector('[data-reset-staged]');
   if (prev) prev.hidden = index === 0;
   if (next) next.hidden = index === total - 1;
   if (count) count.hidden = false;
   if (submit) submit.hidden = index !== total - 1;
-  if (addCheckout) addCheckout.hidden = index !== total - 1;
-  if (resetStaged) resetStaged.hidden = index !== total - 1;
   if (options.validate !== false) validateStep(getStepPanel(form, index), { show: false });
 }
 
@@ -1261,10 +1641,14 @@ function focusFirstInvalid(root) {
 async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
-  await updateDoc(checkoutRef(owner.board.id, cardId, checkoutId), {
+  const timestamp = serverTimestamp();
+  const batch = writeBatch(getDb());
+  batch.update(checkoutRef(owner.board.id, cardId, checkoutId), {
     ...checkout,
-    updatedAt: serverTimestamp()
+    updatedAt: timestamp
   });
+  batch.update(cardRef(owner.board.id, cardId), { updatedAt: timestamp });
+  await batch.commit();
   showToast('Checkout updated', 'success');
   await loadOwnerBoard(owner, { force: true });
 }
@@ -1285,6 +1669,85 @@ async function reopenCheckout(owner, cardId, checkoutId) {
   });
   showToast('Checkout reopened', 'success');
   await loadOwnerBoard(owner, { force: true });
+}
+
+async function replaceFailedCheckout(owner, cardId, checkoutId) {
+  if (!owner.board) return;
+  const checkout = (owner.checkoutsByCard.get(cardId) || []).find(co => co.id === checkoutId);
+  if (!checkout || checkout.status !== 'cannot_fulfill') return;
+  const matches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
+  if (!matches.length) {
+    showToast(`No pending ${checkout.voucher} request available.`, 'error');
+    return;
+  }
+  const pendingId = await showPicker(`Replace ${firstName(checkout.customerName)}’s ${checkout.voucher} checkout with a pending request:`, {
+    options: matches.map(pc => ({
+      value: pc.id,
+      label: pc.customerName || 'Customer',
+      sublabel: `${peso(pc.expectedTotal)} · ${pc.voucher}`
+    })),
+    confirmLabel: 'Replace'
+  });
+  if (!pendingId) return;
+  const db = getDb();
+  const user = getAuthUser();
+  try {
+    await runTransaction(db, async transaction => {
+      const coRef = checkoutRef(owner.board.id, cardId, checkoutId);
+      const pendRef = pendingCheckoutRef(owner.board.id, pendingId);
+      const [coSnap, pendSnap] = await Promise.all([transaction.get(coRef), transaction.get(pendRef)]);
+      if (!coSnap.exists() || coSnap.data().status !== 'cannot_fulfill') throw new Error('checkout changed');
+      if (!pendSnap.exists() || pendSnap.data().status !== 'pending') throw new Error('already taken');
+      if (voucherKey(pendSnap.data().voucher) !== voucherKey(coSnap.data().voucher)) throw new Error('voucher mismatch');
+      const failed = coSnap.data();
+      const incoming = pendSnap.data();
+      const timestamp = serverTimestamp();
+      // Failed checkout returns to the queue (needs editing before re-pooling).
+      transaction.set(doc(pendingCheckoutsRef(owner.board.id)), {
+        ownerUid: user.uid,
+        status: 'failed',
+        assignedCardId: '',
+        customerName: failed.customerName,
+        customerContact: failed.customerContact,
+        customerAddress: failed.customerAddress,
+        voucher: failed.voucher,
+        expectedTotal: failed.expectedTotal,
+        cartUrl: failed.cartUrl,
+        items: failed.items,
+        notes: failed.notes,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      // Incoming request fills the checkout slot, reset to open.
+      transaction.update(coRef, {
+        status: 'open',
+        customerName: incoming.customerName,
+        customerContact: incoming.customerContact,
+        customerAddress: incoming.customerAddress,
+        voucher: incoming.voucher,
+        expectedTotal: incoming.expectedTotal,
+        cartUrl: incoming.cartUrl,
+        items: incoming.items,
+        notes: incoming.notes,
+        canFulfill: null,
+        cannotFulfillReason: '',
+        unavailableItems: [],
+        failedAt: null,
+        updatedAt: timestamp
+      });
+      transaction.delete(pendRef);
+      transaction.update(cardRef(owner.board.id, cardId), { status: 'fulfilling', updatedAt: timestamp });
+    });
+    showToast('Checkout replaced — failed request moved to the queue for editing.', 'success');
+    await loadOwnerBoard(owner, { force: true });
+  } catch (err) {
+    if (String(err.message).includes('already taken')) {
+      showToast('That request was just taken. Pick another.', 'error');
+    } else {
+      console.warn('replaceFailedCheckout failed:', err);
+      showToast('Replace failed. Try again.', 'error');
+    }
+  }
 }
 
 async function approveOwnerCard(owner, cardId) {
@@ -1324,7 +1787,10 @@ async function approveOwnerCard(owner, cardId) {
 
   try {
     const reviewedCard = { ...card, accountCost: numberValue(accountCostValue, 190) };
-    const result = window.POS.approveFulfillmentCard(reviewedCard, checkouts, reviewRows);
+    if (!window.POS?.prepareFulfillmentApproval || !window.POS?.commitFulfillmentApproval) {
+      throw new Error('POS approval helpers are unavailable.');
+    }
+    const result = window.POS.prepareFulfillmentApproval(reviewedCard, checkouts, reviewRows);
     const batch = writeBatch(getDb());
     fulfilled.forEach(checkout => {
       batch.update(checkoutRef(owner.board.id, cardId, checkout.id), {
@@ -1350,6 +1816,7 @@ async function approveOwnerCard(owner, cardId) {
       }, { merge: true });
     }
     await batch.commit();
+    window.POS.commitFulfillmentApproval(result);
     owner.ownerCardModalId = '';
     showToast('Fulfilled checkouts approved to POS', 'success');
     await loadOwnerBoard(owner, { force: true });
@@ -1384,6 +1851,7 @@ function initBookerApp() {
     surrenderEmailSkipsByCard: new Map(),
     expandedCardIds: new Set(),
     expandedCheckoutIds: new Set(),
+    boardUnsub: null,
     loading: true
   };
 
@@ -1452,7 +1920,7 @@ function applyMockBookerState(state) {
 function applyMockOwnerState(owner) {
   const now = Date.now();
   const at = ms => ({ toMillis: () => ms });
-  owner.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', ownerUid: 'mock-uid' });
+  owner.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', ownerUid: 'mock-uid', targetVouchers: ['60%', '70%', '79%'] });
   owner.invites = [
     normalizeInvite('inv1', { bookerName: 'Maria Santos', active: true, boardId: 'mock-board', ownerUid: 'mock-uid', updatedAt: at(now - 8.6e7) }),
     normalizeInvite('inv2', { bookerName: 'Liza Reyes', active: false, boardId: 'mock-board', ownerUid: 'mock-uid', updatedAt: at(now - 1.7e8) })
@@ -1461,7 +1929,7 @@ function applyMockOwnerState(owner) {
   const map = new Map();
   const add = (card, checkouts) => { cards.push(card); map.set(card.id, checkouts); };
   add(normalizeCard('o1', { status: 'fulfilling', bookerName: 'Maria Santos', createdAt: at(now - 3.6e6) }),
-    [mockCheckout('o1a', 'Ana Cruz', '83%', 1450, 'fulfilled'), mockCheckout('o1b', 'Bea Lim', '70%', 980, 'open')]);
+    [mockCheckout('o1a', 'Ana Cruz', '83%', 1450, 'fulfilled'), mockCheckout('o1b', 'Ana Cruz', '60%', 980, 'cannot_fulfill', { cannotFulfillReason: 'Out of stock on 2 of 3 items' })]);
   add(normalizeCard('o2', { status: 'open', createdAt: at(now - 9e5) }),
     [mockCheckout('o2a', 'Carla Reyes', '57%', 2300, 'open')]);
   add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
@@ -1471,6 +1939,11 @@ function applyMockOwnerState(owner) {
   owner.cards = cards;
   owner.checkoutsByCard = map;
   owner.cardFilter = 'active';
+  owner.pendingCheckouts = [
+    normalizePendingCheckout('p1', { customerName: 'Ana Cruz', voucher: '70%', expectedTotal: 980, items: [{ label: 'Knit top (M)' }], notes: '', status: 'pending', createdAt: at(now - 9e5) }),
+    normalizePendingCheckout('p2', { customerName: 'Bea Lim', voucher: '60%', expectedTotal: 1180, items: [{ label: 'Wide trousers (S)' }], notes: '', status: 'pending', createdAt: at(now - 6e5) }),
+    normalizePendingCheckout('p3', { customerName: 'Carmen Diaz', voucher: '79%', expectedTotal: 1620, items: [{ label: 'Linen dress (L)' }], notes: '', status: 'failed', createdAt: at(now - 3e5) })
+  ];
 }
 
 function hideBookerPosChrome() {
@@ -1485,6 +1958,7 @@ function hideBookerPosChrome() {
 }
 
 async function loadBookerSession(state) {
+  if (state.boardUnsub) { state.boardUnsub(); state.boardUnsub = null; }
   state.accessStatus = 'checking';
   state.accessMessage = '';
   state.loading = true;
@@ -1555,6 +2029,7 @@ async function redeemBookerInvite(state, code) {
 }
 
 async function loadBookerBoard(state) {
+  if (state.boardUnsub) { state.boardUnsub(); state.boardUnsub = null; }
   state.loading = true;
   renderBooker(state);
   try {
@@ -1563,27 +2038,46 @@ async function loadBookerBoard(state) {
       state.board = null;
       state.cards = [];
       state.checkoutsByCard = new Map();
+      state.loading = false;
+      renderBooker(state);
       return;
     }
     state.board = normalizeBoard(snap.id, snap.data());
-    const cardSnap = await getDocs(cardsRef(state.boardId));
-    state.cards = cardSnap.docs
-      .map(docSnap => normalizeCard(docSnap.id, docSnap.data()))
-      .sort((a, b) => statusSort(a.status) - statusSort(b.status) || toMs(a.createdAt) - toMs(b.createdAt));
-    const pairs = await Promise.all(state.cards.map(async card => {
-      const checkoutSnap = await getDocs(checkoutsRef(state.boardId, card.id));
-      return [
-        card.id,
-        checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data())).sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt))
-      ];
-    }));
-    state.checkoutsByCard = new Map(pairs);
+    subscribeBookerBoard(state);
   } catch (err) {
     console.warn('booker board load failed:', err);
-  } finally {
     state.loading = false;
     renderBooker(state);
   }
+}
+
+function subscribeBookerBoard(state) {
+  if (state.boardUnsub) { state.boardUnsub(); state.boardUnsub = null; }
+  state.boardUnsub = onSnapshot(cardsRef(state.boardId), async cardSnap => {
+    try {
+      const cards = cardSnap.docs
+        .map(docSnap => normalizeCard(docSnap.id, docSnap.data()))
+        .sort((a, b) => statusSort(a.status) - statusSort(b.status) || toMs(a.createdAt) - toMs(b.createdAt));
+      const pairs = await Promise.all(cards.map(async card => {
+        const checkoutSnap = await getDocs(checkoutsRef(state.boardId, card.id));
+        return [
+          card.id,
+          checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data())).sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt))
+        ];
+      }));
+      state.cards = cards;
+      state.checkoutsByCard = new Map(pairs);
+      state.loading = false;
+      // Don't clobber an in-progress surrender form; refresh data silently and render when it closes.
+      if (!state.surrenderCardId) renderBooker(state);
+    } catch (err) {
+      console.warn('booker board sync failed:', err);
+      state.loading = false;
+    }
+  }, err => {
+    console.warn('booker board snapshot error:', err);
+    state.loading = false;
+  });
 }
 
 function renderBooker(state) {
@@ -1712,6 +2206,7 @@ function getBookerStats(state) {
 
 function renderBookerCard(state, card) {
   const checkouts = state.checkoutsByCard.get(card.id) || [];
+  if (!card.bookerName && card.status === 'open') return renderBookerUnclaimedRow(state, card, checkouts);
   const ours = isBookerOwnedCard(state, card);
   const claimedByOther = card.bookerName && !ours;
   const done = checkouts.length > 0 && checkouts.every(checkout => ['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status));
@@ -1768,6 +2263,31 @@ function renderBookerCard(state, card) {
         </div>
       ` : ''}
       ${card.status === 'surrendered' ? '<p class="booker-done">Surrender submitted. Send/confirm screenshots in Messenger, then wait for owner review.</p>' : ''}
+    </article>
+  `;
+}
+
+function renderBookerUnclaimedRow(state, card, checkouts) {
+  const totalItems = checkouts.reduce((sum, checkout) => sum + checkout.items.length, 0);
+  const expectedTotal = checkouts.reduce((sum, checkout) => sum + Number(checkout.expectedTotal || 0), 0);
+  const vouchers = uniqueByVoucherKey(checkouts.map(checkout => checkout.voucher).filter(Boolean));
+  const claimBlocked = Boolean(getActiveBookerCard(state, card.id));
+  const canClaim = state.bookerName && !claimBlocked;
+  const action = canClaim
+    ? `<button type="button" class="booker-card-action booker-card-action-cta" data-claim-card="${escapeAttr(card.id)}">Claim <span aria-hidden="true">→</span></button>`
+    : claimBlocked ? '<span class="booker-card-action is-disabled">Finish current CO</span>' : '';
+  const meta = `${checkouts.length} checkout${checkouts.length === 1 ? '' : 's'} · ${totalItems} item${totalItems === 1 ? '' : 's'} · ${peso(expectedTotal)}`;
+  return `
+    <article class="ful-pending-row booker-unclaimed-row">
+      <div class="ful-pending-row-top ful-pending-row-top--static">
+        <div class="ful-pending-row-info">
+          ${vouchers.length
+            ? vouchers.map(voucher => `<span class="ful-voucher-pill">${escapeHtml(voucher)}</span>`).join('')
+            : '<span class="fulfillment-muted">No voucher set</span>'}
+          <span class="ful-pending-meta">${escapeHtml(meta)}</span>
+        </div>
+        <span class="ful-pending-row-end">${action}</span>
+      </div>
     </article>
   `;
 }
@@ -1840,9 +2360,10 @@ function renderBookerCheckout(state, card, checkout, ours) {
   return `
     <article class="booker-checkout ${expanded ? 'is-expanded' : ''}">
       <button type="button" class="booker-checkout-summary" data-toggle-booker-checkout="${escapeAttr(expansionKey)}" aria-expanded="${expanded ? 'true' : 'false'}">
-        <div>
-          <div class="fulfillment-checkout-title">${escapeHtml(checkout.customerName || 'Customer')}</div>
-          <p class="fulfillment-muted">${escapeHtml(checkout.voucher || 'Voucher')} - ${peso(checkout.expectedTotal)}</p>
+        <div class="ful-pending-row-info">
+          <span class="ful-voucher-pill">${escapeHtml(checkout.voucher || 'Voucher')}</span>
+          <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
+          <span class="ful-pending-meta">${peso(checkout.expectedTotal)} · ${checkout.items.length} item${checkout.items.length === 1 ? '' : 's'}</span>
         </div>
         <div class="booker-checkout-summary-side">
           <span class="badge ${statusClass(checkout.status)}">${labelStatus(checkout.status)}</span>
@@ -2186,8 +2707,8 @@ async function surrenderBookerCard(state, cardId, form) {
   if (!generatedEmail || !accountEmail || !accountPassword || !expiresAt) return;
 
   const checkoutSnap = await getDocs(checkoutsRef(state.boardId, cardId));
-  const checkouts = checkoutSnap.docs.map(docSnap => docSnap.data());
-  if (!checkouts.length || !checkouts.every(checkout => ['fulfilled', 'cannot_fulfill'].includes(checkout.status))) {
+  const checkoutRefs = checkoutSnap.docs.map(docSnap => checkoutRef(state.boardId, cardId, docSnap.id));
+  if (!checkoutRefs.length) {
     showToast('Decide every checkout before surrendering the account.', 'error');
     return;
   }
@@ -2195,8 +2716,14 @@ async function surrenderBookerCard(state, cardId, form) {
     await runTransaction(getDb(), async transaction => {
       const ref = cardRef(state.boardId, cardId);
       const lockRef = bookerLockRef(state.boardId, state.bookerName);
-      const snap = await transaction.get(ref);
+      const [snap, ...checkoutSnaps] = await Promise.all([
+        transaction.get(ref),
+        ...checkoutRefs.map(checkoutDoc => transaction.get(checkoutDoc))
+      ]);
       if (!snap.exists()) throw new Error('Account card not found.');
+      if (!checkoutSnaps.every(checkoutDoc => checkoutDoc.exists() && ['fulfilled', 'cannot_fulfill'].includes(checkoutDoc.data().status))) {
+        throw new Error('Decide every checkout before surrendering the account.');
+      }
       const card = snap.data();
       if (normalizeBookerName(card.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account belongs to another booker.');
       const timestamp = serverTimestamp();
@@ -2230,6 +2757,7 @@ function normalizeBoard(id, data = {}) {
   return {
     id,
     gmailBase: data.gmailBase || '',
+    targetVouchers: Array.isArray(data.targetVouchers) ? data.targetVouchers : [],
     ...data
   };
 }
@@ -2290,6 +2818,25 @@ function normalizeCheckout(id, data = {}) {
     cannotFulfillReason: data.cannotFulfillReason || '',
     unavailableItems: Array.isArray(data.unavailableItems) ? data.unavailableItems : [],
     ...data
+  };
+}
+
+function normalizePendingCheckout(id, data = {}) {
+  return {
+    id,
+    status: data.status || 'pending',
+    assignedCardId: data.assignedCardId || '',
+    customerName: data.customerName || '',
+    customerContact: data.customerContact || '',
+    customerAddress: data.customerAddress || '',
+    voucher: data.voucher || '',
+    expectedTotal: data.expectedTotal ?? 0,
+    cartUrl: data.cartUrl || '',
+    items: normalizeItems(data.items || []),
+    notes: data.notes || '',
+    ownerUid: data.ownerUid || '',
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null
   };
 }
 
@@ -2572,6 +3119,41 @@ function showConfirm(message, { confirmLabel = 'Confirm', cancelLabel = 'Cancel'
     actions.append(cancelButton, confirmButton);
     panel.append(actions);
     mountAppDialog(dialog, confirmButton);
+  });
+}
+
+function showPicker(message, { options = [], cancelLabel = 'Cancel' } = {}) {
+  return new Promise(resolve => {
+    const { dialog, panel, close } = createAppDialog(message, resolve, null);
+    const list = document.createElement('div');
+    list.className = 'app-dialog-picker';
+    options.forEach(option => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'app-dialog-picker-item';
+      const label = document.createElement('span');
+      label.className = 'app-dialog-picker-label';
+      label.textContent = option.label;
+      button.append(label);
+      if (option.sublabel) {
+        const sub = document.createElement('span');
+        sub.className = 'app-dialog-picker-sub';
+        sub.textContent = option.sublabel;
+        button.append(sub);
+      }
+      button.addEventListener('click', () => close(option.value));
+      list.append(button);
+    });
+    const actions = document.createElement('div');
+    actions.className = 'app-dialog-actions';
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn btn-secondary';
+    cancelButton.textContent = cancelLabel;
+    cancelButton.addEventListener('click', () => close(null));
+    actions.append(cancelButton);
+    panel.append(list, actions);
+    mountAppDialog(dialog, list.querySelector('.app-dialog-picker-item'));
   });
 }
 

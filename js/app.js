@@ -143,6 +143,10 @@ function bindEvents() {
   });
   els.fabMenuBackdrop.addEventListener('click', closeFabMenu);
   const fabAction = fn => () => { closeFabMenu(); fn(); };
+  document.getElementById('fab-request-co').addEventListener('click', fabAction(() => {
+    setView('fulfillment-view');
+    window.dispatchEvent(new CustomEvent('pos:request-co'));
+  }));
   document.getElementById('fab-add-checkout').addEventListener('click', fabAction(() => { syncCheckoutGroups(); openModal(els.checkoutModal); }));
   document.getElementById('fab-add-account').addEventListener('click', fabAction(() => openAccountModal()));
   document.getElementById('fab-add-adspend').addEventListener('click', fabAction(() => openAdSpendModal()));
@@ -1409,7 +1413,7 @@ function importBackup(e) {
 }
 
 /* ─── Toast ───────────────────────────────────────────── */
-function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
+function prepareFulfillmentApproval(card = {}, checkouts = [], reviewRows = {}) {
   const orderIdsByCheckout = {};
   const readyCheckouts = checkouts.filter(checkout => checkout && checkout.status === 'fulfilled' && !checkout.posOrderId);
   const fulfilledCheckouts = readyCheckouts.filter(checkout => {
@@ -1446,12 +1450,12 @@ function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
       if (!availableVouchers.some(v => voucherKey(v) === key)) availableVouchers.push(voucher);
     });
 
-  let account = state.accounts.find(item => item.sourceFulfillmentCardId === card.id);
-  if (!account) {
-    account = { id: uid('acct'), purchasedAt: isoFromTimestampLike(card.surrenderedAt || card.claimedAt || card.createdAt) || new Date().toISOString() };
-    state.accounts.unshift(account);
-  }
-  Object.assign(account, {
+  const existingAccount = state.accounts.find(item => item.sourceFulfillmentCardId === card.id);
+  const account = {
+    ...(existingAccount || {
+      id: uid('acct'),
+      purchasedAt: isoFromTimestampLike(card.surrenderedAt || card.claimedAt || card.createdAt) || new Date().toISOString()
+    }),
     email,
     originalEmail,
     generatedEmail: card.generatedEmail || email,
@@ -1463,7 +1467,7 @@ function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
     availableVouchers: uniqueByVoucherKey(availableVouchers),
     sourceFulfillmentCardId: card.id,
     bookerName: card.bookerName || ''
-  });
+  };
 
   const grouped = new Map();
   fulfilledCheckouts.forEach(checkout => {
@@ -1477,6 +1481,7 @@ function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
   });
 
   const now = new Date().toISOString();
+  const orders = [];
   grouped.forEach(groupCheckouts => {
     const first = groupCheckouts[0] || {};
     const firstSummary = summarizeCheckoutItems(first);
@@ -1490,7 +1495,7 @@ function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
       const orderId = uid('ord');
       const itemSummary = summarizeCheckoutItems(checkout);
       orderIdsByCheckout[checkout.id] = orderId;
-      state.orders.unshift({
+      orders.push({
         id: orderId,
         batchId,
         checkoutId: `${batchId}-${String(index + 1).padStart(2, '0')}`,
@@ -1517,9 +1522,33 @@ function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
     });
   });
 
+  return { accountId: account.id, orderIdsByCheckout, account, orders };
+}
+
+function commitFulfillmentApproval(approval = {}) {
+  if (!approval.account) throw new Error('Approval payload is missing account details.');
+  const existingIndex = state.accounts.findIndex(item => item.sourceFulfillmentCardId === approval.account.sourceFulfillmentCardId);
+  if (existingIndex >= 0) {
+    state.accounts[existingIndex] = { ...state.accounts[existingIndex], ...approval.account };
+  } else {
+    state.accounts.unshift(approval.account);
+  }
+
+  (approval.orders || []).slice().reverse().forEach(order => {
+    const exists = state.orders.some(item => item.fulfillmentCheckoutId === order.fulfillmentCheckoutId);
+    if (!exists) state.orders.unshift(order);
+  });
+
   saveState();
   render();
-  return { accountId: account.id, orderIdsByCheckout };
+  return {
+    accountId: approval.accountId || approval.account.id,
+    orderIdsByCheckout: approval.orderIdsByCheckout || {}
+  };
+}
+
+function approveFulfillmentCard(card = {}, checkouts = [], reviewRows = {}) {
+  return commitFulfillmentApproval(prepareFulfillmentApproval(card, checkouts, reviewRows));
 }
 
 function summarizeCheckoutItems(checkout = {}) {
@@ -1870,6 +1899,8 @@ window.POS = {
   setAdminMode,
   setView,
   showToast,
+  prepareFulfillmentApproval,
+  commitFulfillmentApproval,
   approveFulfillmentCard,
   setShopName(name) {
     state.shopName = String(name || '').trim();

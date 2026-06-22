@@ -36,11 +36,13 @@ const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
 const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
+const SEARCH_PARAMS = new URLSearchParams(window.location.search);
 const IS_BOOKER_ROUTE = window.location.pathname.toLowerCase().endsWith('/booker.html')
-  || new URLSearchParams(window.location.search).has('booker');
+  || SEARCH_PARAMS.has('booker');
 const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_MOCK_ROUTE = IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock');
 const USER_COLLECTION = IS_LOCAL_DEV_HOST ? 'devUsers' : 'users';
-window.POSFirebase = { app, auth, db, isBookerRoute: IS_BOOKER_ROUTE, isLocalDevHost: IS_LOCAL_DEV_HOST, userCollection: USER_COLLECTION, ensureBookerAuth };
+window.POSFirebase = { app, auth, db, isBookerRoute: IS_BOOKER_ROUTE, isLocalDevHost: IS_LOCAL_DEV_HOST, isMockRoute: IS_MOCK_ROUTE, userCollection: USER_COLLECTION, ensureBookerAuth };
 window.POSAdmin = { db, auth, isAdmin: false, user: null };
 
 /* ─── DOM refs ─────────────────────────────────────────────── */
@@ -59,9 +61,9 @@ const forgotBtn = $('auth-forgot');
 const msgEl     = $('auth-message');
 const authLinks = document.querySelector('.auth-links');
 
-if (IS_BOOKER_ROUTE) {
+if (IS_BOOKER_ROUTE || IS_MOCK_ROUTE) {
   if (overlay) overlay.hidden = true;
-  document.querySelector('.app-shell')?.setAttribute('hidden', '');
+  if (IS_BOOKER_ROUTE) document.querySelector('.app-shell')?.setAttribute('hidden', '');
 } else {
   showAuthChecking();
 }
@@ -245,10 +247,10 @@ function doLogout() { signOut(auth).catch(() => {}); }
 
 /* ─── Auth state → data sync ───────────────────────────────── */
 onAuthStateChanged(auth, async (user) => {
-  if (IS_BOOKER_ROUTE) {
+  if (IS_BOOKER_ROUTE || IS_MOCK_ROUTE) {
     window.POSAdmin.isAdmin = false;
     window.POSAdmin.user = user || null;
-    window.dispatchEvent(new CustomEvent('pos:authchange', { detail: { user, isAdmin: false, isBookerRoute: true } }));
+    window.dispatchEvent(new CustomEvent('pos:authchange', { detail: { user, isAdmin: false, isBookerRoute: IS_BOOKER_ROUTE, isMockRoute: IS_MOCK_ROUTE } }));
     if (overlay) overlay.hidden = true;
     setSyncStatus(navigator.onLine ? 'saved' : 'offline');
     return;
