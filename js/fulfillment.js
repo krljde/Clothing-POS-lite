@@ -832,6 +832,7 @@ function renderOwnerCardModal(owner) {
           ${checkouts.map(checkout => renderOwnerCheckout(owner, card, checkout)).join('')}
         </div>
         <div class="modal-footer fulfillment-footer fulfillment-card-modal-footer">
+          ${['open', 'claimed', 'fulfilling'].includes(card.status) ? `<button type="button" class="btn btn-danger" data-delete-card="${escapeAttr(card.id)}">Delete card</button>` : ''}
           <button type="button" class="btn btn-primary" data-approve-card="${escapeAttr(card.id)}" ${card.status !== 'surrendered' ? 'disabled' : ''}>Approve Fulfilled Checkouts</button>
         </div>
       </section>
@@ -1066,6 +1067,11 @@ async function handleOwnerClick(event, owner) {
   const replaceBtn = target.closest('[data-replace-checkout]');
   if (replaceBtn) {
     await replaceFailedCheckout(owner, replaceBtn.getAttribute('data-card-id'), replaceBtn.getAttribute('data-replace-checkout'));
+    return;
+  }
+  const deleteId = target.closest('[data-delete-card]')?.getAttribute('data-delete-card');
+  if (deleteId) {
+    await deleteOwnerCard(owner, deleteId);
     return;
   }
   const approveId = target.closest('[data-approve-card]')?.getAttribute('data-approve-card');
@@ -1674,6 +1680,62 @@ async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
   await batch.commit();
   showToast('Checkout updated', 'success');
   await loadOwnerBoard(owner, { force: true });
+}
+
+async function deleteOwnerCard(owner, cardId) {
+  if (!owner.board) return;
+  const card = owner.cards.find(item => item.id === cardId);
+  if (!card) return;
+  if (!['open', 'claimed', 'fulfilling'].includes(card.status)) {
+    showToast('This card can no longer be deleted.', 'error');
+    return;
+  }
+  const knownCount = (owner.checkoutsByCard.get(cardId) || []).length;
+  const message = `Delete this account card? Its ${knownCount} checkout${knownCount === 1 ? '' : 's'} will return to the pending queue.`
+    + (card.bookerName ? ` ${card.bookerName} is working on it and will be released.` : '');
+  if (!(await showConfirm(message, { confirmLabel: 'Delete card', danger: true }))) return;
+  const user = getAuthUser();
+  try {
+    const checkoutSnap = await getDocs(checkoutsRef(owner.board.id, cardId));
+    const checkouts = checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data()));
+    const batch = writeBatch(getDb());
+    const timestamp = serverTimestamp();
+    checkouts.forEach(checkout => {
+      batch.set(doc(pendingCheckoutsRef(owner.board.id)), {
+        ownerUid: user.uid,
+        status: 'pending',
+        assignedCardId: '',
+        customerName: checkout.customerName,
+        customerContact: checkout.customerContact,
+        customerAddress: checkout.customerAddress,
+        voucher: checkout.voucher,
+        expectedTotal: checkout.expectedTotal,
+        cartUrl: checkout.cartUrl,
+        items: checkout.items,
+        notes: checkout.notes,
+        cannotFulfillReason: '',
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      batch.delete(checkoutRef(owner.board.id, cardId, checkout.id));
+    });
+    batch.delete(cardRef(owner.board.id, cardId));
+    if (card.bookerName) {
+      batch.set(bookerLockRef(owner.board.id, card.bookerName), {
+        bookerName: card.bookerName,
+        cardId,
+        status: 'released',
+        updatedAt: timestamp
+      }, { merge: true });
+    }
+    await batch.commit();
+    owner.ownerCardModalId = '';
+    showToast('Card deleted; checkouts returned to the pending queue.', 'success');
+    await loadOwnerBoard(owner, { force: true });
+  } catch (err) {
+    console.warn('deleteOwnerCard failed:', err);
+    showToast('Could not delete the card. Try again.', 'error');
+  }
 }
 
 async function reopenCheckout(owner, cardId, checkoutId) {
