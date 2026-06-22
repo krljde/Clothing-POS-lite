@@ -39,7 +39,7 @@ const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
 const IS_BOOKER_ROUTE = window.location.pathname.toLowerCase().endsWith('/booker.html')
   || SEARCH_PARAMS.has('booker');
-const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
 const IS_MOCK_ROUTE = IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock');
 const USER_COLLECTION = IS_LOCAL_DEV_HOST ? 'devUsers' : 'users';
 window.POSFirebase = { app, auth, db, isBookerRoute: IS_BOOKER_ROUTE, isLocalDevHost: IS_LOCAL_DEV_HOST, isMockRoute: IS_MOCK_ROUTE, userCollection: USER_COLLECTION, ensureBookerAuth };

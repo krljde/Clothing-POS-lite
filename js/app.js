@@ -1,5 +1,5 @@
 /* ─── Constants ───────────────────────────────────────── */
-const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
 const IS_BOOKER_ROUTE = window.location.pathname.toLowerCase().endsWith('/booker.html')
   || new URLSearchParams(window.location.search).has('booker');
 const STORAGE_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_lite_v10_dev' : 'shein_pos_lite_v10';

@@ -19,7 +19,7 @@ import { escapeAttr, escapeHtml, peso, uniqueByVoucherKey, voucherKey } from './
 
 let autoGroupInFlight = false;
 
-const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const IS_LOCAL_DEV_HOST = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
 const IS_MOCK = IS_LOCAL_DEV_HOST && new URLSearchParams(window.location.search).has('mock');
 const BOARD_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerBoards' : 'bookerBoards';
 const INVITE_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerInvites' : 'bookerInvites';
