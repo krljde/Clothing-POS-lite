@@ -48,7 +48,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overflow-x: hidden; }
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
   background: var(--bg);
@@ -404,11 +404,12 @@ body.booker-route .fab-backdrop {
 .modal-backdrop { position: absolute; inset: 0; background: rgba(42,31,26,.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .modal-panel {
   position: relative; width: 100%; max-width: 560px;
-  max-height: calc(100dvh - 24px); overflow-y: auto;
+  max-height: calc(100dvh - 24px); overflow-y: auto; scrollbar-width: none;
   background: var(--surface); border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg); border: 1px solid var(--border);
   animation: modalIn 220ms cubic-bezier(.34,1.56,.64,1);
 }
+.modal-panel::-webkit-scrollbar { display: none; }
 .modal-panel.large { max-width: 700px; }
 @keyframes modalIn { from { opacity:0; transform:scale(.94) translateY(14px); } to { opacity:1; transform:scale(1) translateY(0); } }
 .modal-header {
@@ -508,8 +509,7 @@ body.booker-route .fab-backdrop {
   .account-actions { justify-content: flex-end; }
   .orders-table-shell { border: none; background: transparent; box-shadow: none; }
   .order-list-row { grid-template-columns: 1fr; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); margin-bottom: 8px; border-bottom: 1px solid var(--border); }
-  .page-header { flex-direction: column; }
-  .page-header-right { justify-content: flex-start; }
+  .page-header-right { justify-content: flex-end; }
   .form-row { grid-template-columns: 1fr; }
   .form-row.checkout-card-row { grid-template-columns: 1fr 1fr; }
   .form-row .span-2 { grid-column: span 1; }
@@ -790,7 +790,7 @@ body.booker-route .fab-backdrop {
   width: min(420px, 100%);
   max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
-  overflow: auto;
+  overflow: auto; scrollbar-width: none;
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -823,6 +823,17 @@ body.booker-route .fab-backdrop {
 .app-dialog-actions .btn {
   min-width: 96px;
 }
+.app-dialog-panel::-webkit-scrollbar { display: none; }
+.app-dialog-picker { display: grid; gap: 8px; }
+.app-dialog-picker-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); transition: border-color var(--t), background var(--t);
+}
+.app-dialog-picker-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.app-dialog-picker-label { font-weight: 700; color: var(--text); }
+.app-dialog-picker-sub { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 
 /* ─── Voucher dupe warning ────────────────────────────── */
 .voucher-warn {
@@ -1100,7 +1111,7 @@ body.booker-route .fab-backdrop {
   z-index: 1;
   width: min(680px, 100%);
   max-height: calc(100vh - 32px);
-  overflow: auto;
+  overflow: auto; scrollbar-width: none;
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -1109,6 +1120,7 @@ body.booker-route .fab-backdrop {
   background: var(--surface);
   box-shadow: var(--shadow-lg);
 }
+.fulfillment-create-sheet::-webkit-scrollbar { display: none; }
 .fulfillment-card-sheet {
   width: min(880px, 100%);
 }
@@ -1364,8 +1376,7 @@ body.booker-route .fab-backdrop {
   gap: 12px;
   align-items: start;
 }
-.fulfillment-checkout-main,
-.booker-checkout {
+.fulfillment-checkout-main {
   display: flex;
   gap: 12px;
 }
@@ -1481,16 +1492,17 @@ body.booker-route {
   display: flex;
   justify-content: space-between;
   gap: var(--sp-3);
-  align-items: flex-start;
+  align-items: center;
   padding: 0;
   color: inherit;
   text-align: left;
 }
-.booker-checkout-summary > div:first-child {
+.booker-checkout-summary > .ful-pending-row-info {
   min-width: 0;
-  display: grid;
-  gap: 4px;
 }
+.booker-checkout-summary-side { align-self: center; }
+.booker-unclaimed-row .ful-pending-row-info { gap: 6px; }
+.booker-unclaimed-row .ful-pending-row-end { align-self: center; }
 /* Account card summary — single column, full-width title row */
 .booker-account-summary {
   width: 100%;
@@ -1680,6 +1692,12 @@ body.booker-route {
   display: grid;
   gap: 10px;
   align-items: stretch;
+  padding: 10px 14px;
+  transition: border-color var(--t), background var(--t);
+}
+.booker-checkout.is-expanded {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 .booker-checkout-body {
   min-width: 0;
@@ -1937,14 +1955,11 @@ body.booker-route {
 @media (max-width: 640px) {
   .fulfillment-panel-head,
   .fulfillment-create-launcher,
-  .fulfillment-share-row,
   .fulfillment-invite-form,
   .fulfillment-invite-row,
-  .fulfillment-board-settings,
   .fulfillment-checkout-preview,
   .fulfillment-step-footer,
-  .booker-account-summary,
-  .booker-checkout-summary {
+  .booker-account-summary {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1952,16 +1967,18 @@ body.booker-route {
   .fulfillment-create-launcher .badge {
     align-self: flex-start;
   }
-  .fulfillment-board-settings {
-    grid-template-columns: 1fr;
-  }
+  /* keep input+icon pairs as a single row on mobile */
+  .fulfillment-board-settings { grid-template-columns: 1fr auto; align-items: flex-end; }
+  .fulfillment-share-row { flex-direction: row; align-items: center; }
   .fulfillment-invite-form,
   .fulfillment-invite-row {
     grid-template-columns: 1fr;
   }
-  .fulfillment-meta-grid,
-  .fulfillment-review-grid {
+  .fulfillment-meta-grid {
     grid-template-columns: 1fr;
+  }
+  .fulfillment-review-grid {
+    grid-template-columns: 1fr 1fr;
   }
   .fulfillment-checkout-card {
     grid-template-columns: 1fr;
@@ -2099,3 +2116,851 @@ body.booker-route {
     text-align: left;
   }
 }
+
+/* ─── Owner Fulfillment Redesign ──────────────────────── */
+
+/* Board panel */
+.ful-board {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.ful-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ful-board-title .field-label { margin-bottom: 3px; }
+.ful-board-title h3 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.25rem;
+  margin: 0;
+}
+.ful-board-empty {
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+/* Stat strip */
+.ful-stat-strip {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ful-stat-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border-soft);
+  transition: background var(--t);
+}
+.ful-stat-item:last-child { border-right: none; }
+.ful-stat-value {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--text);
+}
+.ful-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ful-stat-item--review .ful-stat-value { color: var(--amber); }
+.ful-stat-item--review .ful-stat-label { color: var(--amber); }
+
+/* Portal management collapsible */
+.ful-manage-summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  list-style: none;
+  transition: background var(--t), color var(--t);
+}
+.ful-manage-summary:hover { background: var(--surface-2); color: var(--text); }
+.ful-manage-summary::-webkit-details-marker { display: none; }
+.ful-manage[open] .ful-manage-summary { color: var(--text); }
+.ful-manage[open] .fulfillment-details-toggle {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.ful-manage-summary:hover .fulfillment-details-toggle { color: var(--text-2); }
+.ful-manage-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px 20px 20px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* Cards section */
+.ful-cards-section { display: grid; gap: 14px; }
+.ful-cards-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ful-cards-head > div .field-label { margin-bottom: 3px; }
+.ful-cards-head h3 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.25rem;
+  margin: 0;
+}
+.ful-cards-head .btn { flex-shrink: 0; }
+
+/* Account card */
+.ful-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: box-shadow var(--t), border-color var(--t), transform var(--t);
+}
+.ful-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+.ful-card--review {
+  border-color: #e0c264;
+  background: color-mix(in srgb, var(--amber-soft) 60%, var(--surface));
+}
+.ful-card--review:hover { border-color: var(--amber); }
+.ful-card-btn {
+  width: 100%;
+  padding: 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 9px;
+}
+.ful-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ful-card-email {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+.ful-card-mid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ful-card-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.ful-card-mid .ui-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.ful-card-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 0;
+  row-gap: 5px;
+}
+.ful-card-totals {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+.ful-card-customers { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+.ful-card-customer-pill {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+  background: var(--surface-2); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+}
+.ful-card-customer-count { font-weight: 700; color: var(--accent); }
+.ful-card-progress {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: auto;
+}
+.ful-sep { color: var(--text-3); }
+.ful-progress-done { color: var(--green); }
+.ful-progress-fail { color: var(--red); }
+.ful-progress-open { color: var(--text-3); }
+
+/* Modal header */
+.ful-modal-head {
+  display: grid;
+  gap: 8px;
+  padding-right: 40px;
+}
+.ful-modal-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ful-modal-title-text { display: grid; gap: 2px; }
+.ful-modal-title-text h3 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.3rem;
+  margin: 0;
+  letter-spacing: -.02em;
+}
+.ful-modal-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.ful-modal-stats strong { color: var(--text); font-weight: 700; }
+
+/* Checkout card in modal */
+.ful-checkout {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+.ful-checkout-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ful-checkout-customer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ful-checkout-customer strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.ful-checkout-voucher {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.ful-checkout-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+.ful-checkout-address {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.4;
+}
+.ful-checkout-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .ful-stat-strip { flex-wrap: wrap; }
+  .ful-stat-item { min-width: 50%; flex: 0 0 50%; }
+  .ful-stat-item:nth-child(2) { border-right: none; }
+  .ful-stat-item:nth-child(3) { border-top: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); }
+  .ful-stat-item:nth-child(4) { border-top: 1px solid var(--border-soft); border-right: none; }
+  .ful-board-head { flex-wrap: wrap; }
+  .ful-cards-head { flex-wrap: wrap; }
+  .ful-card-email { display: none; }
+  .ful-card-bottom { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .ful-card-progress { margin-left: 0; }
+  .ful-modal-head { padding-right: 36px; }
+}
+
+/* ─── Create Card Modal Redesign ──────────────────────── */
+
+.ful-create-header {
+  padding-right: 40px;
+}
+.ful-create-header .field-label { margin-bottom: 3px; }
+.ful-create-header h3 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.3rem;
+  margin: 0;
+  letter-spacing: -.02em;
+}
+
+/* Step progress */
+.ful-create-stepper {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 0;
+}
+.ful-create-steps-row {
+  display: flex;
+  justify-content: space-around;
+}
+.ful-create-step-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ful-create-step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  transition: background var(--t), border-color var(--t), color var(--t), box-shadow var(--t);
+}
+.ful-create-step-dot.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.ful-create-step-dot.is-complete {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ful-create-step-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color var(--t);
+}
+.ful-create-step-item:has(.ful-create-step-dot.is-active) .ful-create-step-lbl { color: var(--accent); }
+.ful-create-step-item:has(.ful-create-step-dot.is-complete) .ful-create-step-lbl { color: var(--text-2); }
+
+.ful-create-track {
+  height: 3px;
+  background: var(--border-soft);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0 8px;
+}
+.ful-create-track span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 250ms ease-out;
+}
+
+/* Panel header inside each step */
+.ful-create-panel-head {
+  display: grid;
+  gap: 3px;
+}
+.ful-create-panel-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.ful-create-panel-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
+}
+
+/* Staged checkout list */
+.ful-create-staged {
+  display: grid;
+  gap: 8px;
+}
+.ful-staged-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+.ful-staged-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ful-staged-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ful-staged-meta {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.ful-create-staged-empty {
+  font-size: 13px;
+  color: var(--text-3);
+  margin: 0;
+  padding: 2px 0;
+}
+
+/* Footer: [Back] [step count] [Next / actions] */
+.ful-create-footer {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  align-items: center;
+}
+.ful-create-footer .fulfillment-step-count {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+}
+.ful-create-back,
+.ful-create-fwd {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  /* Override the existing fulfillment-create-sheet .fulfillment-step-footer grid */
+  .fulfillment-create-sheet .ful-create-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .ful-create-footer .fulfillment-step-count {
+    order: -1;
+    text-align: center;
+  }
+  .ful-create-footer .ful-create-back { order: 1; }
+  .ful-create-footer .ful-create-fwd { order: 0; }
+  .ful-create-back [data-step-prev] {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .ful-create-fwd {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ful-create-fwd [data-step-next] { flex: 1 1 100%; min-height: 44px; }
+  .ful-create-fwd [data-add-checkout] { flex: 1 1 0; min-height: 44px; }
+  .ful-create-fwd [data-reset-staged] { flex: 0 0 44px; height: 44px; }
+  .ful-create-fwd [type="submit"] { flex: 1 1 100%; min-height: 44px; }
+  .ful-create-stepper { padding: 0; }
+}
+
+/* ─── Account Cards & Card Modal Redesign ─────────────── */
+
+/* Card list progress bar */
+.ful-card-bar {
+  display: flex;
+  height: 3px;
+}
+.ful-bar-done { background: var(--green); }
+.ful-bar-fail { background: var(--red); }
+.ful-bar-open { background: var(--border-soft); }
+
+/* Modal: info grid */
+.ful-card-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.ful-info-field {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.ful-info-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ful-info-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Checkout card: voucher pill + customer name row */
+.ful-checkout-id { min-width: 0; }
+.ful-checkout-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.ful-voucher-pill {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ful-checkout-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ful-checkout-note {
+  font-size: 13px;
+  color: var(--text-2);
+  margin: 0;
+  line-height: 1.45;
+}
+.ful-checkout-fail-reason {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--red-soft);
+  border-radius: var(--radius-sm);
+}
+
+/* Checkout edit collapsible */
+.ful-edit-box {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+.ful-edit-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 2px 0;
+  transition: color var(--t);
+  user-select: none;
+}
+.ful-edit-summary:hover { color: var(--text-2); }
+.ful-edit-summary::-webkit-details-marker { display: none; }
+.ful-edit-summary .ui-icon { width: 13px; height: 13px; }
+.ful-edit-box[open] .ful-edit-summary { color: var(--text-2); }
+.ful-edit-box form { padding-top: 12px; display: grid; gap: 12px; }
+.ful-edit-box .icon-btn { margin-top: 2px; }
+
+/* ─── Mobile-First Bottom Sheet ─────────────────────────── */
+
+/* Drag handle: hidden on desktop, shown on mobile */
+.ful-sheet-handle {
+  display: none;
+  width: 36px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 999px;
+  margin: -2px auto 12px;
+}
+
+/* Card modal sticky context header */
+.ful-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  margin: -16px -16px 14px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  display: grid;
+  gap: 8px;
+}
+.ful-sheet-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ful-sheet-head-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Inline close button inside sticky head */
+.ful-sheet-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--t), color var(--t);
+  flex-shrink: 0;
+}
+.ful-sheet-close:hover { background: var(--border-soft); color: var(--text); }
+.ful-sheet-close .ui-icon { width: 18px; height: 18px; }
+
+@media (max-width: 640px) {
+  /* Edge-to-edge bottom drawer (overrides padding: 10px set earlier) */
+  .fulfillment-create-modal { padding: 0; }
+
+  /* Top-only radius; remove side/bottom borders so sheet bleeds to screen edge */
+  .fulfillment-create-sheet,
+  .fulfillment-card-sheet {
+    width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  /* Drag handle: visible on mobile */
+  .ful-sheet-handle { display: block; }
+
+  /* Sticky head: counter the 14px mobile padding */
+  .ful-sheet-head {
+    margin: -14px -14px 14px;
+    padding: 14px 14px 12px;
+  }
+
+  /* Larger close button touch target */
+  .ful-sheet-close { width: 44px; height: 44px; }
+
+  /* Safe-area padding for sticky footers on phones with home indicator */
+  .fulfillment-card-modal-footer {
+    bottom: -14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+  .fulfillment-step-footer {
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ─── Card Modal Redesign & Edit Checkout Polish ─────────── */
+
+/* Info grid: remove the nested-card tinted-box treatment inside the modal.
+   Use plain border lines (iOS settings style) so the grid sits on the
+   modal surface without looking like a card-within-a-card. */
+.fulfillment-card-sheet .ful-card-info {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 0;
+  gap: 0;
+  margin: 2px 0 0;
+}
+.fulfillment-card-sheet .ful-info-field {
+  background: transparent;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fulfillment-card-sheet .ful-info-field:nth-child(odd) {
+  padding-right: 12px;
+  border-right: 1px solid var(--border-soft);
+}
+.fulfillment-card-sheet .ful-info-field:nth-child(even) {
+  padding-left: 12px;
+}
+.fulfillment-card-sheet .ful-info-field:nth-child(3),
+.fulfillment-card-sheet .ful-info-field:nth-child(4) {
+  border-bottom: none;
+}
+
+/* Section divider: "N checkouts" label + trailing line */
+.ful-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0 6px;
+}
+.ful-section-divider span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.ful-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+/* Checkout list in card modal: clean collapsible rows, matching the pending queue */
+.fulfillment-card-sheet .fulfillment-owner-checkouts { gap: 8px; display: grid; }
+
+/* Voucher + Expected Total: stay 2-col even on mobile */
+@media (max-width: 640px) {
+  .form-row.ful-2col { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── Pending Checkout Queue ─────────────────────────────────────── */
+.ful-pending-section { display: grid; gap: 14px; }
+.ful-pending-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ful-pending-progress {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+}
+.ful-pending-progress.is-ready {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--surface));
+}
+.ful-pending-progress-label { font-size: 13px; color: var(--text-2); font-weight: 600; }
+.ful-pending-combo-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ful-combo-pip {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+.ful-combo-pip.is-covered {
+  color: var(--green);
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+}
+.ful-pending-list { display: grid; gap: 8px; }
+.ful-pending-row {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ful-pending-row:has(.ful-pending-edit[open]) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.ful-pending-row-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; cursor: pointer; list-style: none;
+  transition: background var(--t);
+}
+.ful-pending-row-top::-webkit-details-marker { display: none; }
+.ful-pending-row-top:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.ful-pending-row-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ful-pending-row-end { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ful-pending-chevron { color: var(--text-3); display: inline-flex; transition: transform var(--t); }
+.ful-pending-chevron .ui-icon { width: 16px; height: 16px; }
+.ful-pending-edit[open] .ful-pending-chevron { transform: rotate(90deg); }
+.ful-pending-edit[open] .ful-pending-row-top { border-bottom: 1px solid var(--border-soft); }
+.ful-pending-edit > form { padding: 12px 14px 14px; display: grid; gap: 12px; }
+.ful-pending-edit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ful-pending-edit-hint { font-size: 12px; color: var(--text-2); }
+.ful-danger { color: var(--red); }
+/* Failed request in the queue */
+.ful-pending-row--failed { border-color: color-mix(in srgb, var(--red) 35%, var(--border-soft)); }
+.ful-pending-row--failed:not(:has(.ful-pending-edit[open])) { background: color-mix(in srgb, var(--red) 5%, var(--surface)); }
+/* Checkout rows inside the card modal reuse the pending-row shell */
+.ful-pending-row-top--static { cursor: default; }
+.ful-checkout-expand { padding: 12px 14px 14px; display: grid; gap: 12px; }
+.ful-checkout-edit-form { display: grid; gap: 12px; }
+.ful-replace-box { display: grid; gap: 8px; justify-items: start; }
+.ful-pending-meta { font-size: 12px; color: var(--text-3); }
+.ful-voucher-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: var(--accent-soft, #f5e8e4);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Target Voucher Combo checkboxes in board settings */
+.ful-voucher-combo-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ful-combo-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  transition: background var(--t), border-color var(--t);
+}
+.ful-combo-check:hover { background: var(--surface-2); }
+.ful-combo-check input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+.form-hint { font-size: 12px; color: var(--text-3); margin-top: 4px; }

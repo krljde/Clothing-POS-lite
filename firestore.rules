@@ -229,6 +229,10 @@ service cloud.firestore {
         }
       }
 
+      match /pendingCheckouts/{pendingId} {
+        allow read, write: if ownsBoard(boardCollection, boardId);
+      }
+
       match /bookerLocks/{bookerKey} {
         allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
         allow delete: if ownsBoard(boardCollection, boardId);

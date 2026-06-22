@@ -143,6 +143,10 @@ function bindEvents() {
   });
   els.fabMenuBackdrop.addEventListener('click', closeFabMenu);
   const fabAction = fn => () => { closeFabMenu(); fn(); };
+  document.getElementById('fab-request-co').addEventListener('click', fabAction(() => {
+    setView('fulfillment-view');
+    window.dispatchEvent(new CustomEvent('pos:request-co'));
+  }));
   document.getElementById('fab-add-checkout').addEventListener('click', fabAction(() => { syncCheckoutGroups(); openModal(els.checkoutModal); }));
   document.getElementById('fab-add-account').addEventListener('click', fabAction(() => openAccountModal()));
   document.getElementById('fab-add-adspend').addEventListener('click', fabAction(() => openAdSpendModal()));
