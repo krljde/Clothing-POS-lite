@@ -71,7 +71,7 @@ if (IS_BOOKER_ROUTE || IS_MOCK_ROUTE) {
 async function ensureBookerAuth() {
   await authPersistenceReady;
   await waitForAuthReady();
-  if (auth.currentUser) return auth.currentUser;
+  if (auth.currentUser && auth.currentUser.isAnonymous) return auth.currentUser;
   const result = await signInAnonymously(auth);
   return result.user;
 }
