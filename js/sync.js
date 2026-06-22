@@ -33,7 +33,13 @@ const authPersistenceReady = setPersistence(auth, browserLocalPersistence).catch
   console.warn('auth persistence setup failed:', err);
 });
 const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  // This network blocks Firestore's streaming Listen channel (one-time reads work, but
+  // realtime onSnapshot hangs). Auto-detect "works" but spends ~30s probing the streaming
+  // channel on every fresh connect (first login / logout→login) before falling back —
+  // during which the POS toasts "sync stopped" and the fulfillment board fails to load.
+  // Force long-polling from the start to skip that probe and connect immediately.
+  experimentalForceLongPolling: true
 });
 const ADMIN_UIDS = new Set(['tkeqa9jRE9NVRoQQGpLz9WJYYpb2']);
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
