@@ -24,6 +24,7 @@ const BOARD_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerBoards' : 'bookerBoards';
 const INVITE_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerInvites' : 'bookerInvites';
 const SESSION_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerSessions' : 'bookerSessions';
 const BOOKER_SESSION_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_booker_session_dev' : 'shein_pos_booker_session';
+const WORKER_URL = 'https://clothing-pos-otp-worker.karljde.workers.dev';
 const BOOKER_BUSY_CARD_STATUSES = ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered'];
 const VOUCHERS = ['83%', '81%', '79%', '75%', '70%', '60%', '59%', '57%', '50%'];
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
@@ -2649,7 +2650,11 @@ function renderSurrenderModal(state) {
                 <span class="field-label">Generated surrender email</span>
                 <span class="field-main wrap">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
                 <input type="hidden" name="generatedEmail" value="${escapeAttr(generatedEmail)}" />
-                ${iconButton('Regenerate surrender email', 'rotate', `type="button" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}`, 'secondary', 'sm')}
+                <div class="toolbar">
+                  ${iconButton('Regenerate surrender email', 'rotate', `type="button" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}`, 'secondary', 'sm')}
+                  <button type="button" class="btn btn-secondary btn-sm" data-get-code ${generatedEmail ? '' : 'disabled'}>${icon('activity')}<span>Get code</span></button>
+                </div>
+                <div class="booker-note" data-code-result hidden></div>
               </div>
               <div class="form-group">
                 <label class="form-label">Password *</label>
@@ -2694,6 +2699,12 @@ async function handleBookerClick(event, state) {
   if (handleStepClick(event, target)) return;
   if (target.closest('[data-booker-refresh]')) {
     await loadBookerSession(state);
+    return;
+  }
+  const copyText = target.closest('[data-copy-text]')?.getAttribute('data-copy-text');
+  if (copyText) {
+    await navigator.clipboard.writeText(copyText);
+    showToast('Copied', 'success');
     return;
   }
   const tab = target.closest('[data-booker-tab]')?.getAttribute('data-booker-tab');
@@ -2741,6 +2752,11 @@ async function handleBookerClick(event, state) {
     renderBooker(state);
     return;
   }
+  const getCodeButton = target.closest('button[data-get-code]');
+  if (getCodeButton) {
+    await getSurrenderCode(getCodeButton);
+    return;
+  }
   const claimId = target.closest('[data-claim-card]')?.getAttribute('data-claim-card');
   if (claimId) {
     await claimBookerCard(state, claimId);
@@ -2750,6 +2766,43 @@ async function handleBookerClick(event, state) {
   if (surrenderId) {
     state.surrenderCardId = surrenderId;
     renderBooker(state);
+  }
+}
+
+async function getSurrenderCode(button) {
+  const form = button.closest('[data-surrender-form]');
+  const resultEl = form?.querySelector('[data-code-result]');
+  const generatedEmail = form ? String(new FormData(form).get('generatedEmail') || '').trim().toLowerCase() : '';
+  if (!generatedEmail || !resultEl) return;
+
+  button.disabled = true;
+  resultEl.hidden = false;
+  resultEl.textContent = 'Checking for the latest code...';
+  try {
+    const user = await window.POSFirebase.ensureBookerAuth();
+    const token = await user.getIdToken();
+    const res = await fetch(`${WORKER_URL}/code?address=${encodeURIComponent(generatedEmail)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+    const data = await res.json();
+    if (data.code) {
+      const code = String(data.code);
+      const details = [data.subject, data.from].filter(Boolean).map(item => String(item)).join(' · ');
+      resultEl.innerHTML = `
+        <span class="field-main mono">${escapeHtml(code)}</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(code)}">${icon('copy')}<span>Copy</span></button>
+        ${details ? `<span class="field-label">${escapeHtml(details)}</span>` : ''}
+      `;
+    } else {
+      resultEl.textContent = 'No code yet — try again in a moment.';
+    }
+  } catch (err) {
+    console.warn('code fetch failed:', err);
+    resultEl.textContent = 'Could not fetch code. Try again.';
+    showToast('Could not fetch code. Try again.', 'error');
+  } finally {
+    button.disabled = false;
   }
 }
 
