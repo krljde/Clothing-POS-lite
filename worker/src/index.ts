@@ -99,9 +99,10 @@ async function fetchLatestCode(env: Env, address: string): Promise<{ code: strin
     if (!messageRes.ok) throw new Error(`Gmail message fetch failed: ${messageRes.status}`)
     const message = (await messageRes.json()) as GmailMessage
     if (!deliveredToMatches(message, address)) continue
+    if (!fromIsShein(message)) continue
 
     const parsed = parseGmailMessage(message.payload)
-    const code = extractOtp(parsed.bodyText)
+    const code = extractSixDigitCode(parsed.bodyText) || extractOtp(parsed.bodyText)
     if (!code) continue
 
     return {
@@ -113,6 +114,16 @@ async function fetchLatestCode(env: Env, address: string): Promise<{ code: strin
   }
 
   return { code: null }
+}
+
+function fromIsShein(message: GmailMessage): boolean {
+  const headers = message.payload.headers ?? []
+  return decodeMimeHeader(findGmailHeader(headers, 'From')).toLowerCase().includes('shein')
+}
+
+function extractSixDigitCode(bodyText: string): string {
+  const match = String(bodyText || '').match(/\b(?!0{6}\b)\d{6}\b/)
+  return match ? match[0] : ''
 }
 
 function deliveredToMatches(message: GmailMessage, address: string): boolean {
