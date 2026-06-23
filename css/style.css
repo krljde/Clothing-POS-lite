@@ -300,8 +300,7 @@ button { cursor: pointer; border: none; background: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
-  .booker-wt-panels { scroll-behavior: auto; }
-  .booker-walkthrough-form .fulfillment-step-panel { transition: none !important; }
+  .tutorial-spotlight { transition: none !important; }
 }
 
 /* ─── Orders Table ────────────────────────────────────── */
@@ -1852,100 +1851,96 @@ body.booker-route {
   flex-shrink: 0;
 }
 
-/* First-time booker walkthrough — mobile-first bottom-sheet overlay */
-.booker-walkthrough-modal {
+/* Interactive coach-mark tutorial — mobile-first overlay with spotlight */
+.tutorial-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: end center;
-  background: rgba(34, 30, 28, .42);
+  z-index: 150;
+  pointer-events: none;
 }
-.booker-walkthrough-panel {
-  width: 100%;
-  max-width: 520px;
-  max-height: 100vh;
-  max-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+.tutorial-overlay.is-centered {
+  background: rgba(20, 16, 14, .62);
+  pointer-events: auto;
+}
+.tutorial-spotlight {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(20, 16, 14, .62);
+  pointer-events: none;
+  transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
+}
+.tutorial-callout {
+  position: fixed;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
-  padding-top: max(16px, env(safe-area-inset-top));
+  pointer-events: auto;
+  margin: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right)) max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
 }
-.booker-walkthrough-panel .fulfillment-panel-head {
-  padding: 0 16px;
-  flex-shrink: 0;
-}
-.booker-walkthrough-form {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-.booker-walkthrough-form .fulfillment-stepper {
-  padding: 12px 16px 4px;
-  flex-shrink: 0;
-}
-.booker-wt-panels {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 8px 16px 12px;
-}
-.booker-wt-panels::-webkit-scrollbar { display: none; }
-.booker-walkthrough-form .fulfillment-step-panel.is-active {
-  gap: 10px;
-  align-content: start;
-}
-.booker-wt-badge {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 800;
-  font-size: 16px;
-}
-.booker-walkthrough-form .fulfillment-step-panel h4 {
+.tutorial-callout h4 {
   margin: 0;
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.25;
+  color: var(--text);
   text-wrap: balance;
 }
-.booker-walkthrough-form .fulfillment-step-panel p {
+.tutorial-callout p {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
   color: var(--text);
   text-wrap: pretty;
 }
-.booker-walkthrough-form .fulfillment-step-footer {
-  position: sticky;
-  bottom: 0;
-  flex-shrink: 0;
-  padding: 12px 16px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+.tutorial-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
 }
-.booker-wt-skip {
-  display: block;
-  width: 100%;
-  padding: 8px 0 max(10px, env(safe-area-inset-bottom));
-  background: var(--surface);
+.tutorial-step-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.tutorial-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tutorial-btn {
+  min-height: 44px;
+  padding: 0 16px;
+}
+.tutorial-hint {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: right;
+}
+.tutorial-exit-link {
+  justify-self: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: none;
   border: 0;
   color: var(--text-2);
   font-family: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  text-align: center;
-  flex-shrink: 0;
+  cursor: pointer;
 }
 /* Proof mockup (CSS-only, no PII) */
 .booker-wt-proof {
