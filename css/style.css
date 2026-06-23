@@ -2617,6 +2617,27 @@ body.booker-route {
   color: var(--text);
   word-break: break-word;
 }
+.ful-account-password {
+  display: grid;
+  gap: 6px;
+  padding: 12px 4px 4px;
+}
+.ful-account-password-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ful-account-password-row .ful-info-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.ful-account-password-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
 
 /* Checkout card: voucher pill + customer name row */
 .ful-checkout-id { min-width: 0; }

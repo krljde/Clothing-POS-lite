@@ -848,6 +848,15 @@ function renderOwnerCardModal(owner) {
             <span class="ful-info-value">${escapeHtml((card.vouchers || []).join(', ') || 'None saved')}</span>
           </div>
         </div>
+        ${card.accountPassword ? `
+        <div class="ful-account-password">
+          <span class="ful-info-label">Account Password</span>
+          <div class="ful-account-password-row">
+            <span class="ful-info-value mono">${escapeHtml(card.accountPassword)}</span>
+            ${iconButton('Copy password', 'copy', `type="button" data-copy-text="${escapeAttr(card.accountPassword)}"`, 'ghost', 'sm')}
+          </div>
+          <span class="ful-account-password-hint">Log in to SHEIN with the surrendered email + this password to verify the booker's checkouts.</span>
+        </div>` : ''}
         ${card.status === 'surrendered' && fulfilled ? renderCardApprovalSettings(card) : ''}
         ${checkouts.length ? `<div class="ful-section-divider"><span>${checkouts.length} checkout${checkouts.length === 1 ? '' : 's'}</span></div>` : ''}
         <div class="list-stack fulfillment-owner-checkouts">
@@ -2118,9 +2127,9 @@ function applyMockOwnerState(owner) {
     [mockCheckout('o1a', 'Ana Cruz', '83%', 1450, 'fulfilled'), mockCheckout('o1b', 'Ana Cruz', '60%', 980, 'cannot_fulfill', { cannotFulfillReason: 'Out of stock on 2 of 3 items' })]);
   add(normalizeCard('o2', { status: 'open', createdAt: at(now - 9e5) }),
     [mockCheckout('o2a', 'Carla Reyes', '57%', 2300, 'open')]);
-  add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
+  add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountPassword: 'Sh3in!co3pass', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
     [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled', { refund: 125 }), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
-  add(normalizeCard('o4', { status: 'approved', bookerName: 'Liza Reyes', accountCost: 190, createdAt: at(now - 9e7) }),
+  add(normalizeCard('o4', { status: 'approved', bookerName: 'Liza Reyes', accountEmail: 'lizaco4@gmail.com', accountPassword: 'L1za!co4pass', accountCost: 190, createdAt: at(now - 9e7) }),
     [mockCheckout('o4a', 'Joy Ho', '83%', 1450, 'approved')]);
   owner.cards = cards;
   owner.checkoutsByCard = map;
