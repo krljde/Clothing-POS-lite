@@ -110,6 +110,10 @@ function bookerLockRef(boardId, bookerName) {
   return doc(getDb(), BOARD_COLLECTION, boardId, 'bookerLocks', bookerLockKey(bookerName));
 }
 
+function retiredEmailsRef(boardId) {
+  return collection(getDb(), BOARD_COLLECTION, boardId, 'retiredEmails');
+}
+
 function icon(name) {
   return `
     <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2029,7 +2033,7 @@ function initBookerApp() {
     accessStatus: 'checking',
     accessMessage: '',
     surrenderCardId: '',
-    surrenderEmailSkipsByCard: new Map(),
+    retiredEmails: new Set(),
     expandedCardIds: new Set(),
     expandedCheckoutIds: new Set(),
     boardUnsub: null,
@@ -2070,6 +2074,7 @@ function applyMockBookerState(state) {
   const at = ms => ({ toMillis: () => ms });
   const scenario = SEARCH_PARAMS.get('mock') || 'browse';
   state.bookerName = 'Maria Santos';
+  state.boardId = 'mock-board';
   state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'] });
   state.accessStatus = 'ready';
   state.loading = false;
@@ -2224,6 +2229,10 @@ async function loadBookerBoard(state) {
       return;
     }
     state.board = normalizeBoard(snap.id, snap.data());
+    const retiredSnap = await getDocs(retiredEmailsRef(state.boardId));
+    state.retiredEmails = new Set(retiredSnap.docs
+      .map(docSnap => String(docSnap.data().email || '').trim().toLowerCase())
+      .filter(Boolean));
     subscribeBookerBoard(state);
   } catch (err) {
     console.warn('booker board load failed:', err);
@@ -2627,9 +2636,12 @@ function renderSurrenderModal(state) {
     const normalized = String(email || '').trim().toLowerCase();
     if (normalized) reservedEmails.add(normalized);
   });
+  state.retiredEmails.forEach(email => {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (normalized) reservedEmails.add(normalized);
+  });
   const generatedOptions = generateAvailableGmailOptions(state.board.gmailBase, reservedEmails);
-  const skipCount = state.surrenderEmailSkipsByCard.get(card.id) || 0;
-  const generatedEmail = card.generatedEmail || generatedOptions[skipCount % Math.max(generatedOptions.length, 1)] || '';
+  const generatedEmail = card.generatedEmail || generatedOptions[0] || '';
   return `
     <div class="booker-surrender-modal" role="dialog" aria-modal="true">
       <div class="booker-surrender-panel">
@@ -2748,8 +2760,7 @@ async function handleBookerClick(event, state) {
   }
   const regenerateId = target.closest('[data-regenerate-surrender]')?.getAttribute('data-regenerate-surrender');
   if (regenerateId) {
-    state.surrenderEmailSkipsByCard.set(regenerateId, (state.surrenderEmailSkipsByCard.get(regenerateId) || 0) + 1);
-    renderBooker(state);
+    await retireSurrenderEmail(state, regenerateId);
     return;
   }
   const getCodeButton = target.closest('button[data-get-code]');
@@ -2766,6 +2777,25 @@ async function handleBookerClick(event, state) {
   if (surrenderId) {
     state.surrenderCardId = surrenderId;
     renderBooker(state);
+  }
+}
+
+async function retireSurrenderEmail(state, cardId) {
+  const card = state.cards.find(item => item.id === cardId);
+  const email = String(state.root.querySelector('[name=generatedEmail]')?.value || '').trim().toLowerCase();
+  if (!card || !email || !state.boardId) return;
+  state.retiredEmails.add(email);
+  renderBooker(state);
+  try {
+    await setDoc(doc(retiredEmailsRef(state.boardId)), {
+      email,
+      retiredBy: state.bookerName,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.warn('surrender email retire failed:', err);
+    showToast('Could not retire that email — try again.', 'error');
   }
 }
 
