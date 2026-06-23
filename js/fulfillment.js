@@ -234,6 +234,7 @@ async function loadOwnerBoard(owner, options = {}) {
     if (owner.board) {
       await Promise.all([loadOwnerCards(owner), loadOwnerInvites(owner)]);
       subscribePendingCheckouts(owner);
+      syncBoardUsedEmails(owner);
     } else {
       if (owner.pendingUnsub) { owner.pendingUnsub(); owner.pendingUnsub = null; }
       owner.invites = [];
@@ -1161,6 +1162,26 @@ async function saveBoardSettings(owner, form) {
   await loadOwnerBoard(owner, { force: true });
 }
 
+async function syncBoardUsedEmails(owner) {
+  try {
+    if (!owner.board || !window.POS?.getState) return;
+    const usedSet = new Set();
+    (window.POS.getState().accounts || []).forEach(account => {
+      ['email', 'generatedEmail', 'surrenderedEmail', 'originalEmail'].forEach(key => {
+        const email = String(account?.[key] || '').trim().toLowerCase();
+        if (email) usedSet.add(email);
+      });
+    });
+    const usedEmails = [...usedSet];
+    const currentEmails = [...new Set((owner.board.usedEmails || []).map(email => String(email || '').trim().toLowerCase()).filter(Boolean))];
+    if (usedEmails.length === currentEmails.length && usedEmails.every((email, index) => email === currentEmails[index])) return;
+    await updateDoc(boardRef(owner.board.id), { usedEmails, updatedAt: serverTimestamp() });
+    owner.board.usedEmails = usedEmails;
+  } catch (err) {
+    console.warn('used email sync failed:', err);
+  }
+}
+
 async function createBookerInvite(owner, form) {
   if (!owner.board) return;
   try {
@@ -1739,6 +1760,7 @@ async function deleteOwnerCard(owner, cardId) {
       batch.delete(cardRef(owner.board.id, cardId));
       await batch.commit();                          // Firestore first
       window.POS.removeFulfillmentRecords(cardId);   // then POS records, only after the delete commits
+      await syncBoardUsedEmails(owner);
       owner.ownerCardModalId = '';
       showToast('Approved card and POS records deleted', 'success');
       await loadOwnerBoard(owner, { force: true });
@@ -1974,6 +1996,7 @@ async function approveOwnerCard(owner, cardId) {
     }
     await batch.commit();
     window.POS.commitFulfillmentApproval(result);
+    await syncBoardUsedEmails(owner);
     owner.ownerCardModalId = '';
     showToast('Fulfilled checkouts approved to POS', 'success');
     await loadOwnerBoard(owner, { force: true });
@@ -2046,7 +2069,7 @@ function applyMockBookerState(state) {
   const at = ms => ({ toMillis: () => ms });
   const scenario = SEARCH_PARAMS.get('mock') || 'browse';
   state.bookerName = 'Maria Santos';
-  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com' });
+  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'] });
   state.accessStatus = 'ready';
   state.loading = false;
   const cards = [];
@@ -2598,7 +2621,12 @@ function renderExpiryHourOptions() {
 function renderSurrenderModal(state) {
   const card = state.cards.find(item => item.id === state.surrenderCardId);
   if (!card) return '';
-  const generatedOptions = generateAvailableGmailOptions(state.board.gmailBase, getReservedEmails(state.cards, card.id));
+  const reservedEmails = getReservedEmails(state.cards, card.id);
+  (state.board.usedEmails || []).forEach(email => {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (normalized) reservedEmails.add(normalized);
+  });
+  const generatedOptions = generateAvailableGmailOptions(state.board.gmailBase, reservedEmails);
   const skipCount = state.surrenderEmailSkipsByCard.get(card.id) || 0;
   const generatedEmail = card.generatedEmail || generatedOptions[skipCount % Math.max(generatedOptions.length, 1)] || '';
   return `
@@ -2936,7 +2964,8 @@ function normalizeBoard(id, data = {}) {
     id,
     gmailBase: data.gmailBase || '',
     targetVouchers: Array.isArray(data.targetVouchers) ? data.targetVouchers : [],
-    ...data
+    ...data,
+    usedEmails: Array.isArray(data.usedEmails) ? data.usedEmails : []
   };
 }
 
