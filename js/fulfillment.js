@@ -795,6 +795,27 @@ function renderOwnerCard(owner, card) {
   `;
 }
 
+function renderOwnerCredField(label, value, fallback) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return `
+      <div class="ful-info-field">
+        <span class="ful-info-label">${escapeHtml(label)}</span>
+        <span class="ful-info-value">${escapeHtml(fallback)}</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="ful-info-field">
+      <span class="ful-info-label">${escapeHtml(label)}</span>
+      <div class="ful-cred-box">
+        <span class="ful-cred-value">${escapeHtml(text)}</span>
+        <button type="button" class="ful-cred-copy" data-copy-text="${escapeAttr(text)}" aria-label="Copy ${escapeHtml(label.toLowerCase())}" title="Copy ${escapeHtml(label.toLowerCase())}">${icon('copy')}</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderOwnerCardModal(owner) {
   const card = owner.cards.find(item => item.id === owner.ownerCardModalId);
   if (!card) return '';
@@ -831,14 +852,8 @@ function renderOwnerCardModal(owner) {
           </div>
         </div>
         <div class="ful-card-info">
-          <div class="ful-info-field">
-            <span class="ful-info-label">Booker Account</span>
-            <span class="ful-info-value">${escapeHtml(card.accountEmail || 'Hidden until surrender')}</span>
-          </div>
-          <div class="ful-info-field">
-            <span class="ful-info-label">Surrendered Email</span>
-            <span class="ful-info-value">${escapeHtml(card.surrenderedEmail || 'Not yet')}</span>
-          </div>
+          ${renderOwnerCredField('Account Email', card.surrenderedEmail || card.accountEmail || card.generatedEmail, 'Hidden until surrender')}
+          ${renderOwnerCredField('Password', card.accountPassword, 'Hidden until surrender')}
           <div class="ful-info-field">
             <span class="ful-info-label">Expiry</span>
             <span class="ful-info-value">${card.expiresAt ? escapeHtml(formatDateTimeValue(card.expiresAt)) : 'Not yet'}</span>
@@ -848,15 +863,6 @@ function renderOwnerCardModal(owner) {
             <span class="ful-info-value">${escapeHtml((card.vouchers || []).join(', ') || 'None saved')}</span>
           </div>
         </div>
-        ${card.accountPassword ? `
-        <div class="ful-account-password">
-          <span class="ful-info-label">Account Password</span>
-          <div class="ful-account-password-row">
-            <span class="ful-info-value mono">${escapeHtml(card.accountPassword)}</span>
-            ${iconButton('Copy password', 'copy', `type="button" data-copy-text="${escapeAttr(card.accountPassword)}"`, 'ghost', 'sm')}
-          </div>
-          <span class="ful-account-password-hint">Log in to SHEIN with the surrendered email + this password to verify the booker's checkouts.</span>
-        </div>` : ''}
         ${card.status === 'surrendered' && fulfilled ? renderCardApprovalSettings(card) : ''}
         ${checkouts.length ? `<div class="ful-section-divider"><span>${checkouts.length} checkout${checkouts.length === 1 ? '' : 's'}</span></div>` : ''}
         <div class="list-stack fulfillment-owner-checkouts">
