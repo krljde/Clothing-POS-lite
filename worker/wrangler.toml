@@ -1,0 +1,13 @@
+name = "clothing-pos-otp-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+GMAIL_BASE = "naddieclo@gmail.com"
+FIREBASE_PROJECT_ID = "shein-pos"
+FRONTEND_ORIGIN = "https://krljde.github.io"
+
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "REPLACE_WITH_CACHE_KV_NAMESPACE_ID"

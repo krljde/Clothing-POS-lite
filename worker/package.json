@@ -1,0 +1,17 @@
+{
+  "name": "clothing-pos-otp-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260623.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.103.0"
+  }
+}

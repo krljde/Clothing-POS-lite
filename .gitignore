@@ -2,3 +2,6 @@
 .impeccable/
 .DS_Store
 node_modules/
+.dev.vars
+worker/.dev.vars
+worker/.wrangler/
