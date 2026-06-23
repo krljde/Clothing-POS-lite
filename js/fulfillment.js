@@ -26,6 +26,7 @@ const SESSION_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerSessions' : 'bookerSess
 const BOOKER_SESSION_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_booker_session_dev' : 'shein_pos_booker_session';
 const WORKER_URL = 'https://clothing-pos-otp-worker.karljde.workers.dev';
 const BOOKER_BUSY_CARD_STATUSES = ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered'];
+const BOOKER_ACTIVE_WORK_STATUSES = ['claimed', 'fulfilling', 'ready_to_surrender'];
 const VOUCHERS = ['83%', '81%', '79%', '75%', '70%', '60%', '59%', '57%', '50%'];
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
 const IS_BOOKER_PORTAL = window.location.pathname.toLowerCase().endsWith('/booker.html')
@@ -1991,14 +1992,6 @@ async function approveOwnerCard(owner, cardId) {
       approvedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-    if (card.bookerName) {
-      batch.set(bookerLockRef(owner.board.id, card.bookerName), {
-        bookerName: card.bookerName,
-        cardId,
-        status: 'released',
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    }
     await batch.commit();
     window.POS.commitFulfillmentApproval(result);
     await syncBoardUsedEmails(owner);
@@ -2083,11 +2076,11 @@ function applyMockBookerState(state) {
   const add = (card, checkouts) => { cards.push(card); map.set(card.id, checkouts); };
   if (scenario === 'active') {
     state.activeTab = 'active';
-    add(normalizeCard('c4', { status: 'fulfilling', bookerName: 'Maria Santos', claimedAt: at(now - 2.7e6), createdAt: at(now - 2.7e6) }),
-      [mockCheckout('c4a', 'Fe Yu', '83%', 1450, 'fulfilled'), mockCheckout('c4b', 'Gigi Co', '70%', 990, 'open')]);
-    add(normalizeCard('c5', { status: 'ready_to_surrender', bookerName: 'Maria Santos', claimedAt: at(now - 5.4e6), createdAt: at(now - 5.4e6) }),
-      [mockCheckout('c5a', 'Hana Sy', '83%', 1450, 'fulfilled'), mockCheckout('c5b', 'Ivy Uy', '60%', 800, 'cannot_fulfill', { cannotFulfillReason: 'Out of stock on 2 of 3 items' })]);
-    state.expandedCardIds = new Set(['c5']);
+    add(normalizeCard('c7', { status: 'surrendered', bookerName: 'Maria Santos', generatedEmail: 's.hopmain@gmail.com', surrenderedEmail: 's.hopmain@gmail.com', accountEmail: 's.hopmain@gmail.com', createdAt: at(now - 5.4e6), surrenderedAt: at(now - 1.8e6) }),
+      [mockCheckout('c7a', 'Hana Sy', '83%', 1450, 'fulfilled')]);
+    add(normalizeCard('c8', { status: 'open', createdAt: at(now - 6e5) }),
+      [mockCheckout('c8a', 'Gigi Co', '70%', 990, 'open')]);
+    state.expandedCardIds = new Set(['c7']);
   } else {
     state.activeTab = 'unclaimed';
     add(normalizeCard('c1', { status: 'open', createdAt: at(now - 6e5) }),
@@ -2560,7 +2553,7 @@ function getActiveBookerCard(state, excludeCardId = '') {
   return state.cards.find(card => (
     card.id !== excludeCardId
     && normalizeBookerName(card.bookerName) === normalizeBookerName(state.bookerName)
-    && BOOKER_BUSY_CARD_STATUSES.includes(card.status)
+    && BOOKER_ACTIVE_WORK_STATUSES.includes(card.status)
   )) || null;
 }
 
@@ -2898,7 +2891,7 @@ async function claimBookerCard(state, cardId) {
       if (data.bookerName && normalizeBookerName(data.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account is already claimed.');
       if (lockSnap.exists()) {
         const lock = lockSnap.data();
-        if (['active', 'surrendered'].includes(lock.status) && lock.cardId !== cardId) {
+        if (lock.status === 'active' && lock.cardId !== cardId) {
           throw new Error('Surrender your current CO before claiming another.');
         }
       }
