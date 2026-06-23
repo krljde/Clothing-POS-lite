@@ -24,6 +24,7 @@ const BOARD_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerBoards' : 'bookerBoards';
 const INVITE_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerInvites' : 'bookerInvites';
 const SESSION_COLLECTION = IS_LOCAL_DEV_HOST ? 'devBookerSessions' : 'bookerSessions';
 const BOOKER_SESSION_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_booker_session_dev' : 'shein_pos_booker_session';
+const BOOKER_WALKTHROUGH_KEY = IS_LOCAL_DEV_HOST ? 'shein_pos_booker_walkthrough_dev' : 'shein_pos_booker_walkthrough';
 const WORKER_URL = 'https://clothing-pos-otp-worker.karljde.workers.dev';
 const BOOKER_BUSY_CARD_STATUSES = ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered'];
 const BOOKER_ACTIVE_WORK_STATUSES = ['claimed', 'fulfilling', 'ready_to_surrender'];
@@ -42,6 +43,7 @@ const ICON_PATHS = {
   check: '<path d="M20 6 9 17l-5-5"></path>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"></rect><rect x="2" y="2" width="13" height="13" rx="2"></rect>',
   external: '<path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>',
+  help: '<circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path>',
   list: '<path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path>',
   plus: '<path d="M12 5v14"></path><path d="M5 12h14"></path>',
   refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2"></path><path d="M3 12a9 9 0 0 1 15.5-6.2"></path><path d="M18 3v6h-6"></path><path d="M6 21v-6h6"></path>',
@@ -52,6 +54,42 @@ const ICON_PATHS = {
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path>',
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>'
 };
+
+const BOOKER_WALKTHROUGH_PANELS = [
+  {
+    title: 'Welcome',
+    body: 'This quick guide shows how to fulfill orders. The golden rule: 1 account = 1 CO. You can only claim a new CO when you\'re not already working on one — or when your last one is surrendered and just waiting for the owner\'s approval.'
+  },
+  {
+    title: 'Claim a CO',
+    body: 'Open the Unclaimed tab. Each card shows the vouchers needed. Tap Claim to take one account.'
+  },
+  {
+    title: 'Review the checkouts',
+    body: 'Open your card to see the expected total for the whole account and each checkout. Checkouts are per voucher — not bulk. Tap a checkout for its items, contact, and cart.'
+  },
+  {
+    title: 'Verify each cart',
+    body: 'For every checkout, use Copy link or Open cart in SHEIN. Check that (1) all items are still available for the discount, and (2) the expected total matches the SHEIN cart. If not, tap Can\'t order this — the system gives you a new checkout with the same voucher automatically.'
+  },
+  {
+    title: 'Get funds / unlock card',
+    body: 'Message the shop owner on Messenger for the funds or the unlock card so you can pay. Process each checkout per voucher, one at a time — not in bulk.'
+  },
+  {
+    title: 'Refund & cancel method',
+    body: 'Enter the Refund (₱) for the checkout before you mark it ordered. If you used the cancel method (free shipping by canceling an order), note it and report it to the owner on Messenger together with the refund.'
+  },
+  {
+    title: 'Mark ordered + send proof',
+    body: 'After ordering, tap Mark as ordered. Screenshot the SHEIN order proof and send it to the owner on Messenger, saying which checkout it\'s for (e.g. \'screenshot + 79%\').',
+    proof: true
+  },
+  {
+    title: 'Surrender & get paid',
+    body: 'When every checkout is done, tap Surrender Account. Bind it to the email shown (Bind to this email) and tap Get code for the verification code. If a dot-email variant can\'t be used, tap New email. The owner reviews your surrendered account — then you get paid.'
+  }
+];
 
 if (IS_BOOKER_PORTAL) {
   initBookerApp();
@@ -2041,6 +2079,8 @@ function initBookerApp() {
     accessStatus: 'checking',
     accessMessage: '',
     surrenderCardId: '',
+    walkthroughOpen: false,
+    walkthroughChecked: false,
     retiredEmails: new Set(),
     expandedCardIds: new Set(),
     expandedCheckoutIds: new Set(),
@@ -2328,6 +2368,10 @@ function renderBooker(state) {
     state.root.innerHTML = '<section class="booker-card"><h1>Board unavailable</h1><p class="fulfillment-muted">This link is invalid or has been revoked.</p></section>';
     return;
   }
+  if (!state.walkthroughChecked && state.bookerName) {
+    state.walkthroughChecked = true;
+    if (!hasSeenWalkthrough(state.bookerName)) state.walkthroughOpen = true;
+  }
   const activeCard = getActiveBookerCard(state);
   const unclaimedCards = state.cards.filter(card => card.status === 'open' && !card.bookerName);
   const activeCards = state.cards.filter(card => isBookerOwnedCard(state, card) && BOOKER_BUSY_CARD_STATUSES.includes(card.status));
@@ -2337,15 +2381,20 @@ function renderBooker(state) {
         <span class="page-kicker">Booker Board</span>
         <h1>${escapeHtml(state.bookerName)}</h1>
       </div>
-      ${iconButton('Refresh board', 'refresh', 'type="button" data-booker-refresh', 'secondary', 'sm')}
+      <div class="booker-header-actions">
+        ${iconButton('How fulfillment works', 'help', 'type="button" data-open-walkthrough', 'ghost', 'sm')}
+        ${iconButton('Refresh board', 'refresh', 'type="button" data-booker-refresh', 'secondary', 'sm')}
+      </div>
     </header>
     ${!state.board.gmailBase ? '<section class="booker-card"><p class="booker-lock">Gmail base is not configured yet. Tell the owner before surrendering an account.</p></section>' : ''}
     ${activeCard && state.activeTab === 'unclaimed' ? '<section class="booker-card"><p class="booker-note">Finish your current CO before claiming another account.</p></section>' : ''}
     ${renderBookerTabContent(state, unclaimedCards, activeCards)}
     ${renderBookerBottomNav(state, unclaimedCards.length, activeCards.length)}
     ${state.surrenderCardId ? renderSurrenderModal(state) : ''}
+    ${state.walkthroughOpen ? renderBookerWalkthrough(state) : ''}
   `;
   initializeStepForms(state.root);
+  if (state.walkthroughOpen) attachWalkthroughSwipe(state);
 }
 
 function renderBookerCodeForm(state) {
@@ -2644,6 +2693,83 @@ function renderExpiryHourOptions() {
   }).join('');
 }
 
+function renderBookerWalkthroughProof() {
+  return `
+    <div class="booker-wt-proof" aria-hidden="true">
+      <div class="booker-wt-proof-head">
+        <span class="booker-wt-proof-thumb"></span>
+        <span class="booker-wt-proof-pill">Processing</span>
+      </div>
+      <span class="booker-wt-proof-line"></span>
+      <span class="booker-wt-proof-line short"></span>
+      <div class="booker-wt-proof-foot">
+        <span class="booker-wt-proof-voucher">79%</span>
+      </div>
+      <p class="booker-wt-proof-caption">Send the screenshot + voucher to Messenger.</p>
+    </div>
+  `;
+}
+
+function renderBookerWalkthrough(state) {
+  const total = BOOKER_WALKTHROUGH_PANELS.length;
+  const firstRun = !hasSeenWalkthrough(state.bookerName);
+  const panels = BOOKER_WALKTHROUGH_PANELS.map((panel, index) => `
+    <section class="fulfillment-step-panel${index === 0 ? ' is-active' : ''}" data-step="${index}">
+      <span class="booker-wt-badge">${index + 1}</span>
+      <h4>${escapeHtml(panel.title)}</h4>
+      <p>${escapeHtml(panel.body)}</p>
+      ${panel.proof ? renderBookerWalkthroughProof() : ''}
+    </section>
+  `).join('');
+  return `
+    <div class="booker-walkthrough-modal" role="dialog" aria-modal="true" aria-label="How fulfillment works">
+      <div class="booker-walkthrough-panel">
+        <div class="fulfillment-panel-head">
+          <div>
+            <span class="page-kicker">Guide</span>
+            <h2>How fulfillment works</h2>
+          </div>
+          ${iconButton('Close', 'x', 'type="button" data-close-walkthrough', 'ghost', 'sm')}
+        </div>
+        <form class="booker-walkthrough-form fulfillment-step-form" data-walkthrough-form data-step-form data-step-index="0" novalidate>
+          ${renderStepProgress(total)}
+          <div class="booker-wt-panels" data-walkthrough-panels>
+            ${panels}
+          </div>
+          <div class="fulfillment-step-footer">
+            ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
+            <span class="fulfillment-step-count" data-step-count></span>
+            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
+            <button type="submit" class="btn btn-primary btn-full">Got it — start fulfilling</button>
+          </div>
+          ${firstRun ? '<button type="button" class="booker-wt-skip" data-close-walkthrough>Skip for now</button>' : ''}
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function attachWalkthroughSwipe(state) {
+  const area = state.root.querySelector('[data-walkthrough-panels]');
+  const form = state.root.querySelector('[data-walkthrough-form]');
+  if (!area || !form) return;
+  let startX = 0;
+  let startY = 0;
+  area.addEventListener('touchstart', event => {
+    const touch = event.changedTouches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+  }, { passive: true });
+  area.addEventListener('touchend', event => {
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return;
+    const current = getStepIndex(form);
+    setStepFormIndex(form, dx < 0 ? current + 1 : current - 1, { validate: false });
+  }, { passive: true });
+}
+
 function renderSurrenderModal(state) {
   const card = state.cards.find(item => item.id === state.surrenderCardId);
   if (!card) return '';
@@ -2789,6 +2915,15 @@ async function handleBookerClick(event, state) {
     );
     return;
   }
+  if (target.closest('[data-open-walkthrough]')) {
+    state.walkthroughOpen = true;
+    renderBooker(state);
+    return;
+  }
+  if (target.closest('[data-close-walkthrough]')) {
+    closeBookerWalkthrough(state);
+    return;
+  }
   if (target.closest('[data-close-surrender]')) {
     state.surrenderCardId = '';
     renderBooker(state);
@@ -2906,12 +3041,23 @@ async function handleBookerSubmit(event, state) {
     }
     return;
   }
+  if (event.target.matches('[data-walkthrough-form]')) {
+    event.preventDefault();
+    closeBookerWalkthrough(state);
+    return;
+  }
   const surrenderCardId = event.target.getAttribute('data-surrender-form');
   if (surrenderCardId) {
     event.preventDefault();
     if (!validateFormFields(event.target, { show: true })) return;
     await surrenderBookerCard(state, surrenderCardId, event.target);
   }
+}
+
+function closeBookerWalkthrough(state) {
+  markWalkthroughSeen(state.bookerName);
+  state.walkthroughOpen = false;
+  renderBooker(state);
 }
 
 async function claimBookerCard(state, cardId) {
@@ -3398,6 +3544,36 @@ function splitList(value) {
 
 function normalizeBookerName(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getSeenWalkthroughNames() {
+  try {
+    const raw = localStorage.getItem(BOOKER_WALKTHROUGH_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('walkthrough read failed:', err);
+    return [];
+  }
+}
+
+function hasSeenWalkthrough(name) {
+  const key = normalizeBookerName(name);
+  if (!key) return false;
+  return getSeenWalkthroughNames().includes(key);
+}
+
+function markWalkthroughSeen(name) {
+  const key = normalizeBookerName(name);
+  if (!key) return;
+  try {
+    const names = getSeenWalkthroughNames();
+    if (names.includes(key)) return;
+    names.push(key);
+    localStorage.setItem(BOOKER_WALKTHROUGH_KEY, JSON.stringify(names));
+  } catch (err) {
+    console.warn('walkthrough write failed:', err);
+  }
 }
 
 function bookerLockKey(value) {
