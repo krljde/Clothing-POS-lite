@@ -2434,9 +2434,6 @@ function renderBookerCard(state, card) {
   const canExpand = Boolean(ours);
   const claimBlockedByActiveCard = !card.bookerName && Boolean(getActiveBookerCard(state, card.id));
   const canClaim = !card.bookerName && state.bookerName && !claimBlockedByActiveCard;
-  const nextCheckout = getNextBookerCheckout(card, checkouts, ours);
-  const nextCheckoutKey = nextCheckout ? checkoutExpansionKey(card.id, nextCheckout.id) : '';
-  const nextCheckoutExpanded = nextCheckoutKey ? state.expandedCheckoutIds.has(nextCheckoutKey) : false;
   const summaryOpen = canExpand
     ? `<button type="button" class="booker-account-summary" data-toggle-booker-card="${escapeAttr(card.id)}" aria-expanded="${expanded ? 'true' : 'false'}">`
     : '<div class="booker-account-summary is-locked" aria-expanded="false" aria-disabled="true">';
@@ -2461,11 +2458,9 @@ function renderBookerCard(state, card) {
             <span><strong>${peso(expectedTotal)}</strong> expected</span>
             ${claimedAge ? `<span class="booker-claim-age ${staleClaim ? 'is-stale' : ''}">${escapeHtml(claimedAge)}</span>` : ''}
           </div>
-          ${nextCheckout ? renderBookerNextSummary(nextCheckout, expanded) : ''}
           ${claimedByOther ? `<span class="booker-claimed-by">Claimed by ${escapeHtml(card.bookerName)}</span>` : ''}
         </div>
       ${summaryClose}
-      ${expanded && nextCheckout ? renderBookerNextActionPanel(card, nextCheckout, nextCheckoutExpanded) : ''}
       ${expanded ? `
         <div class="list-stack booker-checkout-list">
           ${checkouts.map(checkout => renderBookerCheckout(state, card, checkout, ours)).join('')}
@@ -2512,33 +2507,6 @@ function getNextBookerCheckout(card, checkouts, ours) {
   return checkouts.find(checkout => !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status)) || null;
 }
 
-function renderBookerNextSummary(checkout, expanded) {
-  return `
-    <div class="booker-next-summary" aria-label="Next checkout">
-      <span class="booker-next-label">Next checkout</span>
-      <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
-      <span>${escapeHtml(checkout.voucher || 'Voucher')} - ${expanded ? 'review below' : 'tap card to review'}</span>
-    </div>
-  `;
-}
-
-function renderBookerNextActionPanel(card, checkout, expanded) {
-  const expansionKey = checkoutExpansionKey(card.id, checkout.id);
-  return `
-    <div class="booker-next-panel" aria-label="Next checkout action">
-      <div class="booker-next-panel-copy">
-        <span class="booker-next-label">Next step</span>
-        <strong>${escapeHtml(checkout.customerName || 'Customer')}</strong>
-        <span>Open the cart, review the checkout, then mark the outcome.</span>
-      </div>
-      <div class="booker-next-panel-actions">
-        ${checkout.cartUrl ? `<a class="btn btn-secondary booker-next-cart" href="${escapeAttr(checkout.cartUrl)}" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart</span></a>` : ''}
-        <button type="button" class="btn btn-primary" data-toggle-booker-checkout="${escapeAttr(expansionKey)}" data-focus-booker-checkout aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? 'Hide details' : 'Review details'}</button>
-      </div>
-    </div>
-  `;
-}
-
 function getBookerCardState(card, ours, claimedByOther) {
   if (!card.bookerName) return 'Open';
   if (claimedByOther) return 'Claimed';
@@ -2571,9 +2539,10 @@ function isBookerOwnedCard(state, card) {
 function renderBookerCheckout(state, card, checkout, ours) {
   const canEditCard = ours && !['surrendered', 'approved'].includes(card.status);
   const canDecide = canEditCard && !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status);
-  const canSaveRefund = canEditCard && checkout.status === 'fulfilled';
+  const canReopen = canEditCard && ['fulfilled', 'cannot_fulfill'].includes(checkout.status);
   const expansionKey = checkoutExpansionKey(card.id, checkout.id);
   const expanded = state.expandedCheckoutIds.has(expansionKey);
+  const reopenLabel = checkout.status === 'fulfilled' ? 'Un-fulfill' : 'Reopen';
   return `
     <article class="booker-checkout ${expanded ? 'is-expanded' : ''}">
       <button type="button" class="booker-checkout-summary" data-toggle-booker-checkout="${escapeAttr(expansionKey)}" aria-expanded="${expanded ? 'true' : 'false'}">
@@ -2590,47 +2559,59 @@ function renderBookerCheckout(state, card, checkout, ours) {
       ${expanded ? `
         <div class="booker-checkout-body">
           <div class="booker-detail-grid">
-            <div class="span-2"><span class="field-label">Phone / Contact</span><span class="field-main wrap">${escapeHtml(checkout.customerContact || 'Not provided')}</span></div>
-            <div class="span-2"><span class="field-label">Address</span><span class="field-main wrap">${escapeHtml(checkout.customerAddress || 'Not provided')}</span></div>
+            ${renderBookerCopyField('Name', checkout.customerName, 'Not provided', 'Copy name', 'span-2')}
+            ${renderBookerCopyField('Phone / Contact', checkout.customerContact, 'Not provided', 'Copy contact', 'span-2')}
+            ${renderBookerCopyField('Address', checkout.customerAddress, 'Not provided', 'Copy address', 'span-2')}
             <div><span class="field-label">Items</span><span class="field-main">${checkout.items.length}</span></div>
             <div><span class="field-label">Expected Total</span><span class="field-main">${peso(checkout.expectedTotal)}</span></div>
           </div>
           <ul class="booker-item-list">
             ${checkout.items.map(item => `<li>${escapeHtml(item.label)}</li>`).join('')}
           </ul>
-          ${checkout.cartUrl ? `<a class="btn btn-secondary btn-full booker-cart-btn" href="${escapeAttr(checkout.cartUrl)}" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart in SHEIN</span></a>` : ''}
+          ${checkout.cartUrl ? `
+            <div class="booker-cart-actions">
+              <a class="btn btn-secondary booker-cart-btn" href="${escapeAttr(checkout.cartUrl)}" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart in SHEIN</span></a>
+              <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(checkout.cartUrl)}">${icon('copy')}<span>Copy link</span></button>
+            </div>
+          ` : ''}
           ${checkout.notes ? `<p class="booker-note">${escapeHtml(checkout.notes)}</p>` : ''}
           ${checkout.status === 'fulfilled' ? '<p class="booker-done">Fulfilled. Send the order-status screenshot to Messenger.</p>' : ''}
           ${checkout.status === 'cannot_fulfill' ? `<p class="booker-lock">Cannot fulfill: ${escapeHtml(checkout.cannotFulfillReason || 'No reason saved')}</p>` : ''}
           ${canDecide ? renderCheckoutActionButtons(card, checkout) : ''}
-          ${canSaveRefund ? renderCheckoutRefundSaver(card, checkout) : ''}
+          ${canReopen ? `<button type="button" class="btn btn-secondary btn-sm" data-unfulfill-checkout data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">${icon('rotate')}<span>${reopenLabel}</span></button>` : ''}
         </div>
       ` : ''}
     </article>
   `;
 }
 
+function renderBookerCopyField(label, value, fallback, copyLabel, extraClass = '') {
+  const text = String(value || '').trim();
+  return `
+    <div class="${extraClass}">
+      <span class="field-label">${escapeHtml(label)}</span>
+      <span class="booker-copy-field">
+        <span class="field-main wrap">${escapeHtml(text || fallback)}</span>
+        ${text ? iconButton(copyLabel, 'copy', `type="button" data-copy-text="${escapeAttr(text)}"`, 'ghost', 'sm') : ''}
+      </span>
+    </div>
+  `;
+}
+
 function renderCheckoutActionButtons(card, checkout) {
   return `
     <p class="booker-task-hint">Order this on SHEIN with the voucher, then mark it:</p>
-    ${renderBookerRefundInput(card, checkout)}
     <div class="booker-decision-actions">
+      ${renderBookerRefundInput(card, checkout)}
       <button type="button" class="btn btn-primary" data-mark-checkout="fulfilled" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Mark as ordered</button>
       <button type="button" class="btn btn-danger" data-mark-checkout="cannot_fulfill" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Can't order this</button>
     </div>
   `;
 }
 
-function renderCheckoutRefundSaver(card, checkout) {
-  return `
-    ${renderBookerRefundInput(card, checkout)}
-    <button type="button" class="btn btn-secondary btn-sm" data-save-refund data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">${icon('save')}<span>Save refund</span></button>
-  `;
-}
-
 function renderBookerRefundInput(card, checkout) {
   return `
-    <div class="form-group">
+    <div class="booker-refund-inline">
       <label class="form-label">Refund (₱)</label>
       <input class="form-input" data-checkout-refund data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.refund ?? 0)}" />
     </div>
@@ -2679,11 +2660,11 @@ function renderSurrenderModal(state) {
               <span class="section-label">Step 1 of 2</span>
               <h4>Account Login</h4>
               <div class="booker-surrender-target">
-                <span class="field-label">Generated surrender email</span>
+                <span class="field-label">Bind to this email</span>
                 <span class="field-main wrap">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
                 <input type="hidden" name="generatedEmail" value="${escapeAttr(generatedEmail)}" />
                 <div class="toolbar">
-                  ${iconButton('Regenerate surrender email', 'rotate', `type="button" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}`, 'secondary', 'sm')}
+                  <button type="button" class="btn btn-secondary btn-sm" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}>${icon('rotate')}<span>New email</span></button>
                   <button type="button" class="btn btn-secondary btn-sm" data-get-code ${generatedEmail ? '' : 'disabled'}>${icon('activity')}<span>Get code</span></button>
                 </div>
                 <div class="booker-note" data-code-result hidden></div>
@@ -2751,7 +2732,18 @@ async function handleBookerClick(event, state) {
     if (!card || !isBookerOwnedCard(state, card)) return;
     toggleSingleExpanded(state.expandedCardIds, toggleCardId);
     state.expandedCheckoutIds.clear();
+    const expanded = state.expandedCardIds.has(toggleCardId);
+    let focusCheckoutKey = '';
+    if (expanded) {
+      const checkouts = state.checkoutsByCard.get(card.id) || [];
+      const nextCheckout = getNextBookerCheckout(card, checkouts, true);
+      if (nextCheckout) {
+        focusCheckoutKey = checkoutExpansionKey(card.id, nextCheckout.id);
+        state.expandedCheckoutIds.add(focusCheckoutKey);
+      }
+    }
     renderBooker(state);
+    if (focusCheckoutKey) focusBookerCheckout(state, focusCheckoutKey);
     return;
   }
   const toggleCheckout = target.closest('[data-toggle-booker-checkout]');
@@ -2773,12 +2765,12 @@ async function handleBookerClick(event, state) {
     );
     return;
   }
-  const refundButton = target.closest('[data-save-refund]');
-  if (refundButton) {
-    await saveBookerCheckoutRefund(
+  const unfulfillButton = target.closest('[data-unfulfill-checkout]');
+  if (unfulfillButton) {
+    await unfulfillBookerCheckout(
       state,
-      refundButton.getAttribute('data-card-id'),
-      refundButton.getAttribute('data-checkout-id')
+      unfulfillButton.getAttribute('data-card-id'),
+      unfulfillButton.getAttribute('data-checkout-id')
     );
     return;
   }
@@ -2971,6 +2963,24 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     if (reason === null) return;
     cannotFulfillReason = reason;
   }
+  if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
+    const card = state.cards.find(item => item.id === cardId);
+    const checkout = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
+    if (!card || !checkout) return;
+    checkout.status = cannotFulfill ? 'cannot_fulfill' : 'fulfilled';
+    checkout.bookerName = state.bookerName;
+    checkout.canFulfill = !cannotFulfill;
+    checkout.unavailableItems = [];
+    checkout.cannotFulfillReason = cannotFulfill ? cannotFulfillReason : '';
+    checkout.fulfilledAt = cannotFulfill ? null : { toMillis: () => Date.now() };
+    checkout.failedAt = cannotFulfill ? { toMillis: () => Date.now() } : null;
+    if (!cannotFulfill) checkout.refund = refund;
+    const checkouts = state.checkoutsByCard.get(cardId) || [];
+    card.status = checkouts.length && checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status)) ? 'ready_to_surrender' : 'fulfilling';
+    renderBooker(state);
+    showToast('Checkout saved', 'success');
+    return;
+  }
 
   try {
     await runTransaction(getDb(), async transaction => {
@@ -3006,18 +3016,48 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
   }
 }
 
-async function saveBookerCheckoutRefund(state, cardId, checkoutId) {
+async function unfulfillBookerCheckout(state, cardId, checkoutId) {
   if (!cardId || !checkoutId) return;
-  const refund = getBookerCheckoutRefundValue(state, cardId, checkoutId);
+  if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
+    const card = state.cards.find(item => item.id === cardId);
+    const checkout = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
+    if (!card || !checkout) return;
+    checkout.status = 'open';
+    checkout.canFulfill = null;
+    checkout.cannotFulfillReason = '';
+    checkout.unavailableItems = [];
+    checkout.fulfilledAt = null;
+    checkout.failedAt = null;
+    card.status = 'fulfilling';
+    state.expandedCardIds.clear();
+    state.expandedCardIds.add(cardId);
+    state.expandedCheckoutIds.clear();
+    state.expandedCheckoutIds.add(checkoutExpansionKey(cardId, checkoutId));
+    renderBooker(state);
+    showToast('Checkout reopened', 'success');
+    return;
+  }
   try {
-    await updateDoc(checkoutRef(state.boardId, cardId, checkoutId), {
-      refund,
+    const batch = writeBatch(getDb());
+    batch.update(checkoutRef(state.boardId, cardId, checkoutId), {
+      status: 'open',
+      canFulfill: null,
+      cannotFulfillReason: '',
+      unavailableItems: [],
+      fulfilledAt: null,
+      failedAt: null,
       updatedAt: serverTimestamp()
     });
-    showToast('Refund saved', 'success');
+    batch.update(cardRef(state.boardId, cardId), {
+      status: 'fulfilling',
+      updatedAt: serverTimestamp()
+    });
+    await batch.commit();
+    await loadBookerBoard(state);
+    showToast('Checkout reopened', 'success');
   } catch (err) {
-    console.warn('refund save failed:', err);
-    showToast('Could not save refund. Try again.', 'error');
+    console.warn('checkout reopen failed:', err);
+    showToast('Could not reopen checkout. Try again.', 'error');
   }
 }
 

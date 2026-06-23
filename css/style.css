@@ -1565,32 +1565,6 @@ body.booker-route {
 }
 .booker-card-meta-row span { min-width: 0; }
 .booker-card-meta-row strong { color: var(--text); font-weight: 800; }
-.booker-next-summary {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.3;
-}
-.booker-next-summary strong,
-.booker-next-panel-copy strong {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-.booker-next-label {
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .08em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
 .booker-claim-age {
   color: var(--text-2);
   font-size: 11px;
@@ -1659,35 +1633,6 @@ body.booker-route {
   display: grid;
   gap: 10px;
 }
-.booker-next-panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-}
-.booker-next-panel-copy {
-  display: grid;
-  gap: 3px;
-  color: var(--text-2);
-  font-size: 13px;
-  line-height: 1.35;
-}
-.booker-next-panel-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.booker-next-panel-actions .btn {
-  min-width: 0;
-  padding-inline: 12px;
-  white-space: normal;
-}
-.booker-next-cart .ui-icon {
-  width: 18px;
-  height: 18px;
-}
 .booker-checkout {
   display: grid;
   gap: 10px;
@@ -1716,14 +1661,53 @@ body.booker-route {
   min-width: 0;
 }
 .booker-detail-grid .span-2 { grid-column: 1 / -1; }
-.booker-cart-btn .ui-icon { width: 18px; height: 18px; }
+.booker-copy-field,
+.booker-cart-actions,
+.booker-refund-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.booker-copy-field .field-main {
+  min-width: 0;
+  flex: 1;
+}
+.booker-copy-field .icon-btn-sm {
+  flex: 0 0 auto;
+}
+.booker-cart-actions {
+  flex-wrap: wrap;
+}
+.booker-cart-actions .btn {
+  min-width: 0;
+}
+.booker-cart-btn {
+  flex: 1 1 180px;
+}
+.booker-cart-btn .ui-icon,
+.booker-cart-actions .btn .ui-icon { width: 18px; height: 18px; }
 .booker-task-hint { color: var(--text-2); font-size: 13px; font-weight: 600; margin-top: 2px; }
 .pair-2col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-items: start; }
 @media (max-width: 339px) { .pair-2col { grid-template-columns: 1fr; } }
 .booker-decision-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+.booker-decision-actions .btn {
+  flex: 1 1 140px;
+}
+.booker-refund-inline {
+  flex: 0 0 auto;
+}
+.booker-refund-inline .form-label {
+  margin: 0;
+  white-space: nowrap;
+}
+.booker-refund-inline .form-input {
+  width: 7rem;
 }
 .booker-surrender-form {
   display: grid;

@@ -241,7 +241,7 @@ service cloud.firestore {
                 'updatedAt'
               ])
               && request.resource.data.bookerName == sessionBookerName(boardCollection)
-              && request.resource.data.status in ['fulfilled', 'cannot_fulfill']
+              && request.resource.data.status in ['fulfilled', 'cannot_fulfill', 'open']
             );
         }
       }
