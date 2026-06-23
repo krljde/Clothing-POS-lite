@@ -3222,8 +3222,11 @@ function generateAvailableGmailOptions(email, reserved) {
   const domain = domainRaw === 'googlemail.com' ? 'gmail.com' : domainRaw;
   if (domain !== 'gmail.com') return reserved.has(email) ? [] : [email];
   const clean = localRaw.replace(/\./g, '');
+  // The bare, dot-less base (e.g. naddieclo@gmail.com) is the owner's real registered account —
+  // never offer it as a surrender target; only dotted variants are disposable.
+  const base = `${clean}@gmail.com`;
   const candidates = generateDotVariants(clean).map(local => `${local}@gmail.com`);
-  return candidates.filter(candidate => !reserved.has(candidate));
+  return candidates.filter(candidate => candidate !== base && !reserved.has(candidate));
 }
 
 function generateDotVariants(local) {
