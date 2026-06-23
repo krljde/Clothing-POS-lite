@@ -390,6 +390,8 @@ function renderOwnerBoardPanel(owner) {
 }
 
 function renderOwnerInvitePanel(owner) {
+  const activeInvites = owner.invites.filter(invite => invite.active !== false);
+  const revokedInvites = owner.invites.filter(invite => invite.active === false);
   return `
     <div class="fulfillment-invite-box">
       <form id="booker-invite-form" class="fulfillment-invite-form" novalidate>
@@ -400,7 +402,15 @@ function renderOwnerInvitePanel(owner) {
         <button type="submit" class="btn btn-primary">Create Invite Code</button>
       </form>
       <div class="fulfillment-invite-list">
-        ${owner.invites.length ? owner.invites.map(invite => renderOwnerInvite(owner, invite)).join('') : '<p class="fulfillment-muted">No booker invites yet.</p>'}
+        ${owner.invites.length ? activeInvites.map(invite => renderOwnerInvite(owner, invite)).join('') : '<p class="fulfillment-muted">No booker invites yet.</p>'}
+        ${revokedInvites.length ? `
+          <details>
+            <summary>Revoked (${revokedInvites.length})</summary>
+            <div class="fulfillment-invite-list">
+              ${revokedInvites.map(invite => renderOwnerInvite(owner, invite)).join('')}
+            </div>
+          </details>
+        ` : ''}
       </div>
     </div>
   `;
@@ -408,17 +418,20 @@ function renderOwnerInvitePanel(owner) {
 
 function renderOwnerInvite(owner, invite) {
   const revealedCode = owner.revealedInviteCodes.get(invite.id) || '';
+  const isActive = invite.active !== false;
   return `
     <article class="fulfillment-invite-row">
       <div>
-        <strong>${escapeHtml(invite.bookerName || 'Booker')}</strong>
-        <span>${invite.active ? 'Active invite' : 'Revoked invite'}</span>
-        ${revealedCode ? `<code class="invite-code">${escapeHtml(revealedCode)}</code>` : '<small>Code hidden. Regenerate to copy a new code.</small>'}
+        <div><strong>${escapeHtml(invite.bookerName || 'Booker')}</strong><small> &middot; ${isActive ? 'Active' : 'Revoked'}</small></div>
       </div>
       <div class="toolbar">
-        ${revealedCode ? `<button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(revealedCode)}">${icon('copy')}<span>Copy code</span></button>` : ''}
-        <button type="button" class="btn btn-secondary btn-sm" data-regenerate-invite="${escapeAttr(invite.id)}">${icon('rotate')}<span>Regenerate</span></button>
-        <button type="button" class="btn btn-danger btn-sm" data-revoke-invite="${escapeAttr(invite.id)}" ${invite.active ? '' : 'disabled'}>${icon('trash')}<span>Revoke</span></button>
+        ${isActive ? `
+          ${revealedCode ? `<button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(revealedCode)}">${icon('copy')}<span>Copy code</span></button>` : ''}
+          <button type="button" class="btn btn-secondary btn-sm" data-regenerate-invite="${escapeAttr(invite.id)}">${icon('rotate')}<span>Regenerate</span></button>
+          <button type="button" class="btn btn-danger btn-sm" data-revoke-invite="${escapeAttr(invite.id)}" ${invite.active ? '' : 'disabled'}>${icon('trash')}<span>Revoke</span></button>
+        ` : `
+          <button type="button" class="btn btn-danger btn-sm" data-remove-invite="${escapeAttr(invite.id)}">${icon('trash')}<span>Remove</span></button>
+        `}
       </div>
     </article>
   `;
@@ -1050,6 +1063,11 @@ async function handleOwnerClick(event, owner) {
     await revokeBookerInvite(owner, revokeInviteId);
     return;
   }
+  const removeInviteId = target.closest('[data-remove-invite]')?.getAttribute('data-remove-invite');
+  if (removeInviteId) {
+    await deleteBookerInvite(owner, removeInviteId);
+    return;
+  }
   if (target.closest('[data-post-now]')) {
     await postNowFromPending(owner);
     return;
@@ -1220,6 +1238,23 @@ async function revokeBookerInvite(owner, inviteHash) {
   } catch (err) {
     console.warn('invite revoke failed:', err);
     showToast(inviteErrorMessage(err), 'error');
+  }
+}
+
+async function deleteBookerInvite(owner, inviteHash) {
+  const invite = owner.invites.find(item => item.id === inviteHash);
+  if (!invite || invite.active) return;
+  if (!(await showConfirm(`Remove ${invite.bookerName}'s revoked invite from the list?`, {
+    confirmLabel: 'Remove',
+    danger: true
+  }))) return;
+  try {
+    await deleteDoc(inviteRef(inviteHash));
+    showToast('Invite removed', 'success');
+    await loadOwnerBoard(owner, { force: true });
+  } catch (err) {
+    console.warn('invite delete failed:', err);
+    showToast('Could not remove invite. Try again.', 'error');
   }
 }
 
