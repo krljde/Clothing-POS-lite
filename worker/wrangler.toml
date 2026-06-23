@@ -10,4 +10,4 @@ FRONTEND_ORIGIN = "https://krljde.github.io"
 
 [[kv_namespaces]]
 binding = "CACHE_KV"
-id = "REPLACE_WITH_CACHE_KV_NAMESPACE_ID"
+id = "844d65e45b0448199035026f35f3f931"
