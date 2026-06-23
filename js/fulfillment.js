@@ -966,7 +966,7 @@ function renderReviewInputs(checkout) {
       </div>
       <div class="form-group">
         <label class="form-label">Refund</label>
-        <input class="form-input" data-review-refund type="number" inputmode="decimal" min="0" step="0.01" value="0" />
+        <input class="form-input" data-review-refund type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.refund ?? 0)}" />
       </div>
       <div class="form-group">
         <label class="form-label">Tracking</label>
@@ -2076,11 +2076,18 @@ function applyMockBookerState(state) {
   const add = (card, checkouts) => { cards.push(card); map.set(card.id, checkouts); };
   if (scenario === 'active') {
     state.activeTab = 'active';
+    add(normalizeCard('c4', { status: 'fulfilling', bookerName: 'Maria Santos', claimedAt: at(now - 2.7e6), createdAt: at(now - 2.7e6) }),
+      [
+        mockCheckout('c4a', 'Fe Yu', '83%', 1450, 'open'),
+        mockCheckout('c4b', 'Gigi Co', '70%', 990, 'fulfilled', { refund: 75 }),
+        mockCheckout('c4c', 'Ivy Uy', '60%', 800, 'cannot_fulfill', { cannotFulfillReason: 'Out of stock on 2 of 3 items' })
+      ]);
     add(normalizeCard('c7', { status: 'surrendered', bookerName: 'Maria Santos', generatedEmail: 's.hopmain@gmail.com', surrenderedEmail: 's.hopmain@gmail.com', accountEmail: 's.hopmain@gmail.com', createdAt: at(now - 5.4e6), surrenderedAt: at(now - 1.8e6) }),
       [mockCheckout('c7a', 'Hana Sy', '83%', 1450, 'fulfilled')]);
     add(normalizeCard('c8', { status: 'open', createdAt: at(now - 6e5) }),
       [mockCheckout('c8a', 'Gigi Co', '70%', 990, 'open')]);
-    state.expandedCardIds = new Set(['c7']);
+    state.expandedCardIds = new Set(['c4']);
+    state.expandedCheckoutIds = new Set(['c4:c4a', 'c4:c4b', 'c4:c4c']);
   } else {
     state.activeTab = 'unclaimed';
     add(normalizeCard('c1', { status: 'open', createdAt: at(now - 6e5) }),
@@ -2112,7 +2119,7 @@ function applyMockOwnerState(owner) {
   add(normalizeCard('o2', { status: 'open', createdAt: at(now - 9e5) }),
     [mockCheckout('o2a', 'Carla Reyes', '57%', 2300, 'open')]);
   add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
-    [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled'), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
+    [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled', { refund: 125 }), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
   add(normalizeCard('o4', { status: 'approved', bookerName: 'Liza Reyes', accountCost: 190, createdAt: at(now - 9e7) }),
     [mockCheckout('o4a', 'Joy Ho', '83%', 1450, 'approved')]);
   owner.cards = cards;
@@ -2562,7 +2569,9 @@ function isBookerOwnedCard(state, card) {
 }
 
 function renderBookerCheckout(state, card, checkout, ours) {
-  const canEdit = ours && !['surrendered', 'approved'].includes(card.status) && !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status);
+  const canEditCard = ours && !['surrendered', 'approved'].includes(card.status);
+  const canDecide = canEditCard && !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status);
+  const canSaveRefund = canEditCard && checkout.status === 'fulfilled';
   const expansionKey = checkoutExpansionKey(card.id, checkout.id);
   const expanded = state.expandedCheckoutIds.has(expansionKey);
   return `
@@ -2593,7 +2602,8 @@ function renderBookerCheckout(state, card, checkout, ours) {
           ${checkout.notes ? `<p class="booker-note">${escapeHtml(checkout.notes)}</p>` : ''}
           ${checkout.status === 'fulfilled' ? '<p class="booker-done">Fulfilled. Send the order-status screenshot to Messenger.</p>' : ''}
           ${checkout.status === 'cannot_fulfill' ? `<p class="booker-lock">Cannot fulfill: ${escapeHtml(checkout.cannotFulfillReason || 'No reason saved')}</p>` : ''}
-          ${canEdit ? renderCheckoutActionButtons(card, checkout) : ''}
+          ${canDecide ? renderCheckoutActionButtons(card, checkout) : ''}
+          ${canSaveRefund ? renderCheckoutRefundSaver(card, checkout) : ''}
         </div>
       ` : ''}
     </article>
@@ -2603,9 +2613,26 @@ function renderBookerCheckout(state, card, checkout, ours) {
 function renderCheckoutActionButtons(card, checkout) {
   return `
     <p class="booker-task-hint">Order this on SHEIN with the voucher, then mark it:</p>
+    ${renderBookerRefundInput(card, checkout)}
     <div class="booker-decision-actions">
       <button type="button" class="btn btn-primary" data-mark-checkout="fulfilled" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Mark as ordered</button>
       <button type="button" class="btn btn-danger" data-mark-checkout="cannot_fulfill" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Can't order this</button>
+    </div>
+  `;
+}
+
+function renderCheckoutRefundSaver(card, checkout) {
+  return `
+    ${renderBookerRefundInput(card, checkout)}
+    <button type="button" class="btn btn-secondary btn-sm" data-save-refund data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">${icon('save')}<span>Save refund</span></button>
+  `;
+}
+
+function renderBookerRefundInput(card, checkout) {
+  return `
+    <div class="form-group">
+      <label class="form-label">Refund (₱)</label>
+      <input class="form-input" data-checkout-refund data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.refund ?? 0)}" />
     </div>
   `;
 }
@@ -2743,6 +2770,15 @@ async function handleBookerClick(event, state) {
       decisionButton.getAttribute('data-card-id'),
       decisionButton.getAttribute('data-checkout-id'),
       decisionButton.getAttribute('data-mark-checkout')
+    );
+    return;
+  }
+  const refundButton = target.closest('[data-save-refund]');
+  if (refundButton) {
+    await saveBookerCheckoutRefund(
+      state,
+      refundButton.getAttribute('data-card-id'),
+      refundButton.getAttribute('data-checkout-id')
     );
     return;
   }
@@ -2923,6 +2959,7 @@ async function claimBookerCard(state, cardId) {
 async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
   if (!cardId || !checkoutId || !['fulfilled', 'cannot_fulfill'].includes(decision)) return;
   const cannotFulfill = decision === 'cannot_fulfill';
+  const refund = cannotFulfill ? 0 : getBookerCheckoutRefundValue(state, cardId, checkoutId);
   let cannotFulfillReason = '';
   if (cannotFulfill) {
     const reason = await showPrompt('Why can this checkout not be fulfilled?', {
@@ -2945,7 +2982,7 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
       const checkout = checkoutSnap.data();
       if (normalizeBookerName(card.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account belongs to another booker.');
       if (['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status)) throw new Error('This checkout is already decided.');
-      transaction.update(coRef, {
+      const updates = {
         status: cannotFulfill ? 'cannot_fulfill' : 'fulfilled',
         bookerName: state.bookerName,
         canFulfill: !cannotFulfill,
@@ -2954,7 +2991,9 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
         fulfilledAt: cannotFulfill ? null : serverTimestamp(),
         failedAt: cannotFulfill ? serverTimestamp() : null,
         updatedAt: serverTimestamp()
-      });
+      };
+      if (!cannotFulfill) updates.refund = refund;
+      transaction.update(coRef, updates);
       transaction.update(cRef, {
         status: 'fulfilling',
         updatedAt: serverTimestamp()
@@ -2965,6 +3004,26 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
   } catch (err) {
     showToast(err.message || 'Could not save checkout status.', 'error');
   }
+}
+
+async function saveBookerCheckoutRefund(state, cardId, checkoutId) {
+  if (!cardId || !checkoutId) return;
+  const refund = getBookerCheckoutRefundValue(state, cardId, checkoutId);
+  try {
+    await updateDoc(checkoutRef(state.boardId, cardId, checkoutId), {
+      refund,
+      updatedAt: serverTimestamp()
+    });
+    showToast('Refund saved', 'success');
+  } catch (err) {
+    console.warn('refund save failed:', err);
+    showToast('Could not save refund. Try again.', 'error');
+  }
+}
+
+function getBookerCheckoutRefundValue(state, cardId, checkoutId) {
+  const input = state.root.querySelector(`[data-checkout-refund][data-card-id="${cssEscape(cardId)}"][data-checkout-id="${cssEscape(checkoutId)}"]`);
+  return numberValue(input?.value, 0);
 }
 
 async function refreshCardReadyState(state, cardId) {
@@ -3100,7 +3159,8 @@ function normalizeCheckout(id, data = {}) {
     notes: data.notes || '',
     cannotFulfillReason: data.cannotFulfillReason || '',
     unavailableItems: Array.isArray(data.unavailableItems) ? data.unavailableItems : [],
-    ...data
+    ...data,
+    refund: numberValue(data.refund, 0)
   };
 }
 
