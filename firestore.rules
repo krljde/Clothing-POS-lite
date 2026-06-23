@@ -289,6 +289,19 @@ service cloud.firestore {
             && request.resource.data.status in ['active', 'surrendered']
           );
       }
+
+      match /retiredEmails/{retiredId} {
+        allow read: if ownsBoard(boardCollection, boardId) || hasBookerSession(boardCollection, boardId);
+        allow create: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && request.resource.data.keys().hasOnly(['email', 'retiredBy', 'createdAt', 'updatedAt'])
+            && request.resource.data.email is string
+            && request.resource.data.retiredBy == sessionBookerName(boardCollection)
+          );
+        allow update: if false;
+        allow delete: if ownsBoard(boardCollection, boardId);
+      }
     }
   }
 }
