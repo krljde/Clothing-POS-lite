@@ -86,10 +86,10 @@ const TUTORIAL_STEPS = [
     }
   },
   {
-    anchor: '[data-toggle-booker-card]',
-    title: 'Open your card',
-    body: 'Open the card to see the expected total and each checkout. Checkouts are per voucher — not bulk.',
-    done: s => s.expandedCardIds.has('tut-card')
+    anchor: '[data-toggle-booker-checkout]',
+    title: 'Open a checkout',
+    body: "Tap a customer's checkout to see its items and cart. Checkouts are per voucher — not bulk.",
+    done: s => s.expandedCheckoutIds.size > 0
   },
   {
     anchor: '.booker-cart-actions',
@@ -101,19 +101,13 @@ const TUTORIAL_STEPS = [
     anchor: '[data-mark-checkout="fulfilled"]',
     title: 'Mark ordered',
     body: 'Enter the Refund (₱), then tap Mark as ordered.',
-    done: s => {
-      const co = (s.checkoutsByCard.get('tut-card') || []).find(c => c.id === 'tut-co1');
-      return Boolean(co && co.status === 'fulfilled');
-    }
+    done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'fulfilled')
   },
   {
     anchor: '[data-mark-checkout="cannot_fulfill"]',
     title: "Can't order this",
     body: "If a cart can't be ordered, tap Can't order this. The system gives you a replacement with the same voucher; if none appears, there's none available right now.",
-    done: s => {
-      const co = (s.checkoutsByCard.get('tut-card') || []).find(c => c.id === 'tut-co2');
-      return Boolean(co && co.status === 'cannot_fulfill');
-    }
+    done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'cannot_fulfill')
   },
   {
     anchor: null,
@@ -3309,6 +3303,8 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     if (!cannotFulfill) checkout.refund = refund;
     const checkouts = state.checkoutsByCard.get(cardId) || [];
     card.status = checkouts.length && checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status)) ? 'ready_to_surrender' : 'fulfilling';
+    const nextCo = checkouts.find(item => !['fulfilled', 'cannot_fulfill', 'approved'].includes(item.status));
+    state.expandedCheckoutIds = new Set(nextCo ? [checkoutExpansionKey(cardId, nextCo.id)] : []);
     renderBooker(state);
     showToast('Checkout saved', 'success');
     return;
