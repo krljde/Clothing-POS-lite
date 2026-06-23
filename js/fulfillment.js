@@ -1733,14 +1733,12 @@ async function deleteOwnerCard(owner, cardId) {
     if (!(await showConfirm(message, { confirmLabel: 'Delete card + POS records', danger: true }))) return;
     try {
       if (!window.POS?.removeFulfillmentRecords) throw new Error('POS delete helper is unavailable.');
-      window.POS.removeFulfillmentRecords(cardId);
       const checkoutSnap = await getDocs(checkoutsRef(owner.board.id, cardId));
       const batch = writeBatch(getDb());
-      checkoutSnap.docs.forEach(docSnap => {
-        batch.delete(checkoutRef(owner.board.id, cardId, docSnap.id));
-      });
+      checkoutSnap.docs.forEach(docSnap => batch.delete(checkoutRef(owner.board.id, cardId, docSnap.id)));
       batch.delete(cardRef(owner.board.id, cardId));
-      await batch.commit();
+      await batch.commit();                          // Firestore first
+      window.POS.removeFulfillmentRecords(cardId);   // then POS records, only after the delete commits
       owner.ownerCardModalId = '';
       showToast('Approved card and POS records deleted', 'success');
       await loadOwnerBoard(owner, { force: true });
