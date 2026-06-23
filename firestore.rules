@@ -228,13 +228,14 @@ service cloud.firestore {
             || (
               hasBookerSession(boardCollection, boardId)
               && cardClaimedBySession(boardCollection, boardId, cardId)
-              && get(cardPath(boardCollection, boardId, cardId)).data.status in ['claimed', 'fulfilling']
+              && get(cardPath(boardCollection, boardId, cardId)).data.status in ['claimed', 'fulfilling', 'ready_to_surrender']
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'status',
                 'bookerName',
                 'canFulfill',
                 'unavailableItems',
                 'cannotFulfillReason',
+                'refund',
                 'fulfilledAt',
                 'failedAt',
                 'updatedAt'
