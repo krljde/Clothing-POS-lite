@@ -1029,6 +1029,16 @@ function deleteOrder(orderId) {
   showToast('Checkout deleted', 'success');
 }
 
+function removeFulfillmentRecords(cardId) {
+  if (!cardId) return { accounts: 0, orders: 0 };
+  const removedAccounts = state.accounts.filter(account => account.sourceFulfillmentCardId === cardId).length;
+  const removedOrders = state.orders.filter(order => order.fulfillmentCardId === cardId).length;
+  state.accounts = state.accounts.filter(account => account.sourceFulfillmentCardId !== cardId);
+  state.orders = state.orders.filter(order => order.fulfillmentCardId !== cardId);
+  saveState(); render();
+  return { accounts: removedAccounts, orders: removedOrders };
+}
+
 /* ─── Statistics View ─────────────────────────────────── */
 function getStatsDateRange() {
   const now = new Date();
@@ -1902,6 +1912,7 @@ window.POS = {
   prepareFulfillmentApproval,
   commitFulfillmentApproval,
   approveFulfillmentCard,
+  removeFulfillmentRecords,
   setShopName(name) {
     state.shopName = String(name || '').trim();
     saveState();

@@ -796,6 +796,8 @@ function renderOwnerCardModal(owner) {
   const failed = checkouts.filter(checkout => checkout.status === 'cannot_fulfill').length;
   const totalItems = checkouts.reduce((sum, checkout) => sum + checkout.items.length, 0);
   const expectedTotal = checkouts.reduce((sum, checkout) => sum + Number(checkout.expectedTotal || 0), 0);
+  const canDeleteCard = ['open', 'claimed', 'fulfilling', 'approved'].includes(card.status);
+  const deleteLabel = card.status === 'approved' ? 'Delete card + POS records' : 'Delete card';
   return `
     <div class="fulfillment-create-modal fulfillment-card-modal" role="dialog" aria-modal="true" aria-labelledby="fulfillment-card-modal-title">
       <button type="button" class="fulfillment-create-backdrop" data-close-owner-card aria-label="Close account card details"></button>
@@ -845,7 +847,7 @@ function renderOwnerCardModal(owner) {
           ${checkouts.map(checkout => renderOwnerCheckout(owner, card, checkout)).join('')}
         </div>
         <div class="modal-footer fulfillment-footer fulfillment-card-modal-footer">
-          ${['open', 'claimed', 'fulfilling'].includes(card.status) ? `<button type="button" class="btn btn-danger" data-delete-card="${escapeAttr(card.id)}">Delete card</button>` : ''}
+          ${canDeleteCard ? `<button type="button" class="btn btn-danger" data-delete-card="${escapeAttr(card.id)}">${deleteLabel}</button>` : ''}
           <button type="button" class="btn btn-primary" data-approve-card="${escapeAttr(card.id)}" ${card.status !== 'surrendered' ? 'disabled' : ''}>Approve Fulfilled Checkouts</button>
         </div>
       </section>
@@ -1721,11 +1723,31 @@ async function deleteOwnerCard(owner, cardId) {
   if (!owner.board) return;
   const card = owner.cards.find(item => item.id === cardId);
   if (!card) return;
-  if (!['open', 'claimed', 'fulfilling'].includes(card.status)) {
+  if (!['open', 'claimed', 'fulfilling', 'approved'].includes(card.status)) {
     showToast('This card can no longer be deleted.', 'error');
     return;
   }
   const knownCount = (owner.checkoutsByCard.get(cardId) || []).length;
+  if (card.status === 'approved') {
+    const message = `Delete this approved card AND the ${knownCount} POS order${knownCount === 1 ? '' : 's'} + account it created? This can't be undone.`;
+    if (!(await showConfirm(message, { confirmLabel: 'Delete card + POS records', danger: true }))) return;
+    try {
+      if (!window.POS?.removeFulfillmentRecords) throw new Error('POS delete helper is unavailable.');
+      const checkoutSnap = await getDocs(checkoutsRef(owner.board.id, cardId));
+      const batch = writeBatch(getDb());
+      checkoutSnap.docs.forEach(docSnap => batch.delete(checkoutRef(owner.board.id, cardId, docSnap.id)));
+      batch.delete(cardRef(owner.board.id, cardId));
+      await batch.commit();                          // Firestore first
+      window.POS.removeFulfillmentRecords(cardId);   // then POS records, only after the delete commits
+      owner.ownerCardModalId = '';
+      showToast('Approved card and POS records deleted', 'success');
+      await loadOwnerBoard(owner, { force: true });
+    } catch (err) {
+      console.warn('deleteOwnerCard failed:', err);
+      showToast('Could not delete the card. Try again.', 'error');
+    }
+    return;
+  }
   const message = `Delete this account card? Its ${knownCount} checkout${knownCount === 1 ? '' : 's'} will return to the pending queue.`
     + (card.bookerName ? ` ${card.bookerName} is working on it and will be released.` : '');
   if (!(await showConfirm(message, { confirmLabel: 'Delete card', danger: true }))) return;
