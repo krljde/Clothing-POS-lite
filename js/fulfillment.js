@@ -2602,10 +2602,6 @@ function renderSurrenderModal(state) {
                 ${iconButton('Regenerate surrender email', 'rotate', `type="button" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}`, 'secondary', 'sm')}
               </div>
               <div class="form-group">
-                <label class="form-label">Created Account Email *</label>
-                <input class="form-input" name="accountEmail" type="email" inputmode="email" autocomplete="email" required />
-              </div>
-              <div class="form-group">
                 <label class="form-label">Password *</label>
                 <input class="form-input" name="accountPassword" type="password" autocomplete="current-password" required data-step-autoadvance />
               </div>
@@ -2859,12 +2855,12 @@ async function refreshCardReadyState(state, cardId) {
 async function surrenderBookerCard(state, cardId, form) {
   const data = new FormData(form);
   const generatedEmail = String(data.get('generatedEmail') || '').trim().toLowerCase();
-  const accountEmail = String(data.get('accountEmail') || '').trim();
+  const accountEmail = generatedEmail;
   const accountPassword = String(data.get('accountPassword') || '').trim();
   const vouchers = splitList(data.get('vouchers'));
   const expiryHoursLeft = numberValue(data.get('expiryHoursLeft'), 0);
   const expiresAt = expiryHoursLeft > 0 ? new Date(Date.now() + expiryHoursLeft * 3600000).toISOString() : '';
-  if (!generatedEmail || !accountEmail || !accountPassword || !expiresAt) return;
+  if (!generatedEmail || !accountPassword || !expiresAt) return;
 
   const checkoutSnap = await getDocs(checkoutsRef(state.boardId, cardId));
   const checkoutRefs = checkoutSnap.docs.map(docSnap => checkoutRef(state.boardId, cardId, docSnap.id));
