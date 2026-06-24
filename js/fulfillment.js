@@ -2267,7 +2267,7 @@ function mockCheckout(id, customerName, voucher, expectedTotal, status, extra = 
     customerContact: '0917 555 0142',
     customerAddress: 'Unit 4B, 12 Mabini St, Quezon City',
     cartUrl: `https://www.shein.com/cart#${id}`,
-    cartImage: 'https://img.ltwebstatic.com/v4/j/pics3/2026/06/24/5f/178228862627a456e0c24dc1c383dcab1ee4828706.jpg',
+    cartImage: 'https://img.ltwebstatic.com/v4/j/pics3/2026/06/24/f6/1782287742b917b0bb66a5a4bb9871d000f408a7a0.jpg',
     cartTitle: 'I found some great items at SHEIN!',
     items: [
       { label: 'Ribbed knit top — beige (M)' },

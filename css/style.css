@@ -1703,8 +1703,8 @@ body.booker-route {
 .booker-pw-enter:hover { color: var(--text-3); }
 .booker-cart-preview {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px;
   margin-bottom: 8px;
   background: var(--surface-2);
@@ -1713,15 +1713,16 @@ body.booker-route {
   color: inherit;
 }
 .booker-cart-thumb {
-  width: 60px;
-  height: 60px;
-  flex: 0 0 auto;
-  object-fit: cover;
+  align-self: center;
+  max-width: 100%;
+  max-height: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
 .booker-cart-preview-title {
-  min-width: 0;
   font-size: 13px;
   line-height: 1.35;
   color: var(--text);
