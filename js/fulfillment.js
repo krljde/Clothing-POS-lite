@@ -2789,6 +2789,11 @@ function renderBookerWalkthroughProof() {
 
 /* ─── Interactive coach-mark tutorial ─── */
 function startBookerTutorial(state) {
+  // Stash the real board context — buildTutorialState clobbers boardId/board,
+  // and endBookerTutorial needs the real id to reload the live board.
+  if (state.boardId && state.boardId !== 'tutorial-board') {
+    state.realBoardId = state.boardId;
+  }
   state.tutorial = true;
   state.tutorialStep = 0;
   state.tutorialMaxStep = 0;
@@ -2810,6 +2815,10 @@ function endBookerTutorial(state) {
     applyMockBookerState(state);
     renderBooker(state);
     return;
+  }
+  if (state.realBoardId) {
+    state.boardId = state.realBoardId;
+    state.realBoardId = null;
   }
   loadBookerBoard(state);
 }
