@@ -1404,6 +1404,7 @@ async function submitPendingCheckout(owner, form) {
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
   const user = getAuthUser();
+  const { cartImage = '', cartTitle = '' } = await fetchCartPreview(checkout.cartUrl);
   try {
     const ref = doc(pendingCheckoutsRef(owner.board.id));
     await setDoc(ref, {
@@ -1416,6 +1417,8 @@ async function submitPendingCheckout(owner, form) {
       voucher: checkout.voucher,
       expectedTotal: checkout.expectedTotal,
       cartUrl: checkout.cartUrl,
+      cartImage,
+      cartTitle,
       items: checkout.items,
       notes: checkout.notes,
       cannotFulfillReason: '',
@@ -1435,6 +1438,7 @@ async function savePendingCheckout(owner, pendingId, form) {
   if (!owner.board) return;
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
+  await applyCartPreview(checkout, owner.pendingCheckouts.find(p => p.id === pendingId));
   try {
     await updateDoc(pendingCheckoutRef(owner.board.id, pendingId), {
       ...checkout,
@@ -1545,6 +1549,8 @@ async function createCardFromPending(owner, pendingBatch) {
           voucher: pc.voucher,
           expectedTotal: pc.expectedTotal,
           cartUrl: pc.cartUrl,
+          cartImage: pc.cartImage || '',
+          cartTitle: pc.cartTitle || '',
           items: pc.items,
           notes: pc.notes,
           createdAt: timestamp,
@@ -1606,6 +1612,40 @@ function extractCartUrl(text) {
   const raw = String(text || '').trim();
   const match = raw.match(/https?:\/\/\S+/i);
   return match ? match[0].trim() : raw;
+}
+
+/* Unfurl a SHEIN cart link via the worker (server-side, since the browser can't
+   read SHEIN's OG tags cross-origin). Returns {} on any failure — never blocks a save. */
+async function fetchCartPreview(url) {
+  const target = String(url || '').trim();
+  if (!target) return {};
+  try {
+    const user = getAuthUser();
+    const token = user ? await user.getIdToken() : '';
+    if (!token) return {};
+    const res = await fetch(`${WORKER_URL}/preview?url=${encodeURIComponent(target)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return { cartImage: String(data.image || ''), cartTitle: String(data.title || '') };
+  } catch (err) {
+    console.warn('cart preview fetch failed:', err);
+    return {};
+  }
+}
+
+/* Set cartImage/cartTitle on a checkout being saved. Reuse the stored preview when
+   the cart URL hasn't changed (and we already have an image); otherwise refetch. */
+async function applyCartPreview(checkout, prev) {
+  if (prev && String(prev.cartUrl || '').trim() === checkout.cartUrl && prev.cartImage) {
+    checkout.cartImage = prev.cartImage;
+    checkout.cartTitle = prev.cartTitle || '';
+    return;
+  }
+  const { cartImage = '', cartTitle = '' } = await fetchCartPreview(checkout.cartUrl);
+  checkout.cartImage = cartImage;
+  checkout.cartTitle = cartTitle;
 }
 
 function readCheckoutEntry(form, options = {}) {
@@ -1882,6 +1922,7 @@ function focusFirstInvalid(root) {
 async function saveOwnerCheckout(owner, cardId, checkoutId, form) {
   const checkout = readCheckoutEntry(form);
   if (!checkout) return;
+  await applyCartPreview(checkout, (owner.checkoutsByCard.get(cardId) || []).find(c => c.id === checkoutId));
   const card = owner.cards.find(item => item.id === cardId);
   if (card && ['claimed', 'fulfilling'].includes(card.status)) {
     const confirmed = await showConfirm(`This card is claimed by ${card.bookerName || 'a booker'} and they may be working from the current details. Save anyway?`);
@@ -1949,6 +1990,8 @@ async function deleteOwnerCard(owner, cardId) {
         voucher: checkout.voucher,
         expectedTotal: checkout.expectedTotal,
         cartUrl: checkout.cartUrl,
+        cartImage: checkout.cartImage || '',
+        cartTitle: checkout.cartTitle || '',
         items: checkout.items,
         notes: checkout.notes,
         cannotFulfillReason: '',
@@ -2046,6 +2089,8 @@ async function replaceFailedCheckout(owner, cardId, checkoutId) {
         voucher: failed.voucher,
         expectedTotal: failed.expectedTotal,
         cartUrl: failed.cartUrl,
+        cartImage: failed.cartImage || '',
+        cartTitle: failed.cartTitle || '',
         items: failed.items,
         notes: failed.notes,
         cannotFulfillReason: failed.cannotFulfillReason || '',
@@ -2061,6 +2106,8 @@ async function replaceFailedCheckout(owner, cardId, checkoutId) {
         voucher: incoming.voucher,
         expectedTotal: incoming.expectedTotal,
         cartUrl: incoming.cartUrl,
+        cartImage: incoming.cartImage || '',
+        cartTitle: incoming.cartTitle || '',
         items: incoming.items,
         notes: incoming.notes,
         canFulfill: null,
@@ -2194,6 +2241,14 @@ function initBookerApp() {
   root.addEventListener('submit', event => handleBookerSubmit(event, state));
   root.addEventListener('focusout', event => handleValidationBlur(event));
   root.addEventListener('input', event => handleValidationInput(event));
+  // Cart thumbnails are hotlinked from SHEIN's CDN — hide the card if the image
+  // fails to load (capture phase: 'error' events don't bubble).
+  root.addEventListener('error', event => {
+    const img = event.target;
+    if (img instanceof HTMLImageElement && img.classList.contains('booker-cart-thumb')) {
+      img.closest('.booker-cart-preview')?.remove();
+    }
+  }, true);
   const reposition = () => { if (state.tutorial) positionTutorialCoach(state); };
   window.addEventListener('resize', reposition);
   window.addEventListener('scroll', reposition, { passive: true });
@@ -2212,6 +2267,8 @@ function mockCheckout(id, customerName, voucher, expectedTotal, status, extra = 
     customerContact: '0917 555 0142',
     customerAddress: 'Unit 4B, 12 Mabini St, Quezon City',
     cartUrl: `https://www.shein.com/cart#${id}`,
+    cartImage: 'https://img.ltwebstatic.com/v4/j/pics3/2026/06/24/5f/178228862627a456e0c24dc1c383dcab1ee4828706.jpg',
+    cartTitle: 'I found some great items at SHEIN!',
     items: [
       { label: 'Ribbed knit top — beige (M)' },
       { label: 'Wide-leg trousers — black (S)' },
@@ -2744,6 +2801,12 @@ function renderBookerCheckout(state, card, checkout, ours) {
           <ul class="booker-item-list">
             ${checkout.items.map(item => `<li>${escapeHtml(item.label)}</li>`).join('')}
           </ul>
+          ${checkout.cartImage ? `
+            <a class="booker-cart-preview" href="${escapeAttr(checkout.cartUrl || checkout.cartImage)}" target="_blank" rel="noreferrer">
+              <img class="booker-cart-thumb" src="${escapeAttr(checkout.cartImage)}" alt="" loading="lazy" />
+              <span class="booker-cart-preview-title">${escapeHtml(checkout.cartTitle || 'SHEIN cart')}</span>
+            </a>
+          ` : ''}
           ${checkout.cartUrl ? `
             <div class="booker-cart-actions">
               <a class="btn btn-secondary booker-cart-btn" href="${escapeAttr(checkout.cartUrl)}" target="_blank" rel="noreferrer">${icon('external')}<span>Open cart in SHEIN</span></a>
@@ -3692,6 +3755,8 @@ function normalizeCheckout(id, data = {}) {
     voucher: data.voucher || '',
     expectedTotal: data.expectedTotal ?? 0,
     cartUrl: data.cartUrl || '',
+    cartImage: data.cartImage || '',
+    cartTitle: data.cartTitle || '',
     items: normalizeItems(data.items || data.itemLines || []),
     notes: data.notes || '',
     cannotFulfillReason: data.cannotFulfillReason || '',
@@ -3712,6 +3777,8 @@ function normalizePendingCheckout(id, data = {}) {
     voucher: data.voucher || '',
     expectedTotal: data.expectedTotal ?? 0,
     cartUrl: data.cartUrl || '',
+    cartImage: data.cartImage || '',
+    cartTitle: data.cartTitle || '',
     items: normalizeItems(data.items || []),
     notes: data.notes || '',
     cannotFulfillReason: data.cannotFulfillReason || '',
