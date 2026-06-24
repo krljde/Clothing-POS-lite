@@ -2811,6 +2811,9 @@ function endBookerTutorial(state) {
   state.cards = [];
   state.checkoutsByCard = new Map();
   state.retiredEmails = new Set();
+  // The sim claim flips activeTab to 'active'; reset so the real board opens on
+  // Unclaimed (a fresh booker has no active cards yet) instead of an empty tab.
+  state.activeTab = 'unclaimed';
   if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
     applyMockBookerState(state);
     renderBooker(state);
