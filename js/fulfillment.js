@@ -1689,16 +1689,36 @@ function handleCartUrlPaste(event) {
   }
 }
 
+// Real cart URLs never contain whitespace. When the field carries a URL buried
+// in pasted text (SHEIN share blurb), collapse it to just the link. Runs on the
+// 'input' event so it works regardless of how the text arrived — desktop paste,
+// iOS long-press paste, or the Android clipboard-suggestion chip (which fires
+// 'input', not 'paste', so clipboardData is never available there).
+function normalizeCartUrlField(field) {
+  if (!(field instanceof HTMLInputElement) || field.name !== 'cartUrl') return false;
+  const value = field.value;
+  if (!value || !/\s/.test(value)) return false;
+  const url = extractCartUrl(value);
+  if (url && url !== value.trim()) {
+    field.value = url;
+    return true;
+  }
+  return false;
+}
+
 function handleValidationBlur(event) {
   const field = getValidatableField(event.target);
   if (!field) return;
+  normalizeCartUrlField(field);
   validateField(field, { show: true });
   if (field.matches('[data-step-autoadvance]')) maybeAutoAdvance(field);
 }
 
 function handleValidationInput(event) {
   const field = getValidatableField(event.target);
-  if (field?.classList.contains('is-invalid')) validateField(field, { show: true });
+  if (!field) return;
+  const changed = normalizeCartUrlField(field);
+  if (changed || field.classList.contains('is-invalid')) validateField(field, { show: true });
 }
 
 function handleOwnerCustomerAutofill(event, owner) {
@@ -1840,7 +1860,7 @@ function getFieldError(field) {
   if (field.required && !value) return 'Required field.';
   if (!value) return '';
   if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Enter a valid email.';
-  if (field.type === 'url' && !/^https?:\/\/\S+\.\S+/.test(value)) return 'Enter a valid cart link.';
+  if (field.type === 'url' && !/^https?:\/\/\S+\.\S+/.test(extractCartUrl(value))) return 'Enter a valid cart link.';
   if (field.type === 'number') {
     const num = Number(value);
     const min = field.min === '' ? null : Number(field.min);
