@@ -98,9 +98,15 @@ const TUTORIAL_STEPS = [
     next: true
   },
   {
+    anchor: '[data-checkout-refund]',
+    title: 'Refund',
+    body: 'If this CO used the Cancel Method, type how much refund here. Otherwise leave it 0.',
+    next: true
+  },
+  {
     anchor: '[data-mark-checkout="fulfilled"]',
     title: 'Mark ordered',
-    body: 'Only add a Refund (₱) if you used the cancel method, then tap Mark as ordered.',
+    body: 'Then tap Mark as ordered.',
     done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'fulfilled')
   },
   {
@@ -112,7 +118,7 @@ const TUTORIAL_STEPS = [
   {
     anchor: null,
     title: 'Send proof',
-    body: "After ordering, screenshot the order proof and send it to the owner with the voucher (e.g. '+79%').",
+    body: "Screenshot the order's Processing tab and send it to the owner on Messenger with the customer's name + voucher (e.g. Martha Sunga – 60%).",
     proof: true,
     next: true
   },
@@ -125,7 +131,7 @@ const TUTORIAL_STEPS = [
   {
     anchor: '[data-get-code]',
     title: 'Bind & get code',
-    body: 'Tap Get code, fill the password, then Submit. Tap New email if a variant is taken.',
+    body: 'Tap Get code, fill the password, go Next, then Submit. Tap New email if a variant is taken.',
     done: s => {
       const c = s.cards.find(x => x.id === 'tut-card');
       return Boolean(c && c.status === 'surrendered');
@@ -2129,6 +2135,7 @@ function initBookerApp() {
     surrenderCardId: '',
     tutorial: false,
     tutorialStep: 0,
+    tutorialMaxStep: 0,
     tutorialChecked: false,
     retiredEmails: new Set(),
     expandedCardIds: new Set(),
@@ -2450,7 +2457,7 @@ function renderBooker(state) {
   `;
   initializeStepForms(state.root);
   if (state.tutorial) {
-    positionTutorialCoach(state);
+    positionTutorialCoach(state, true);
     maybeAdvanceTutorial(state);
   }
 }
@@ -2765,10 +2772,11 @@ function renderBookerWalkthroughProof() {
         <span class="wt-proof-itxt"><strong>Office blouse</strong><span>Light Yellow / XS · x1</span></span>
         <span class="wt-proof-price">₱128</span>
       </div>
+      <div class="wt-proof-cust">Martha Sunga · 0917 ··· ····</div>
       <div class="wt-proof-meta"><span>Order #GSH17J35…</span><span class="wt-proof-total">Total ₱322</span></div>
       <div class="booker-wt-proof-foot">
-        <span class="booker-wt-proof-voucher">79%</span>
-        <span class="booker-wt-proof-caption">Screenshot this, then send it + the voucher to Messenger.</span>
+        <span class="booker-wt-proof-voucher">60%</span>
+        <span class="booker-wt-proof-caption">Send to Messenger: customer name + voucher.</span>
       </div>
     </div>
   `;
@@ -2778,6 +2786,7 @@ function renderBookerWalkthroughProof() {
 function startBookerTutorial(state) {
   state.tutorial = true;
   state.tutorialStep = 0;
+  state.tutorialMaxStep = 0;
   buildTutorialState(state);
   renderBooker(state);
 }
@@ -2822,9 +2831,13 @@ function buildTutorialState(state) {
 }
 
 function maybeAdvanceTutorial(state) {
+  // Only auto-advance at the frontier — lets the booker go Back and review
+  // already-completed steps without being bounced forward again.
+  if (state.tutorialStep !== state.tutorialMaxStep) return;
   const step = TUTORIAL_STEPS[state.tutorialStep];
   if (step && typeof step.done === 'function' && step.done(state)) {
     state.tutorialStep += 1;
+    state.tutorialMaxStep = state.tutorialStep;
     renderBooker(state);
   }
 }
@@ -2836,9 +2849,10 @@ function renderTutorialCoach(state) {
   const stepNumber = state.tutorialStep + 1;
   const showBack = state.tutorialStep > 0;
   const showSpotlight = Boolean(step.anchor);
+  const reviewed = state.tutorialStep < state.tutorialMaxStep;
   const advance = step.finish
     ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-exit>Finish</button>'
-    : step.next
+    : (step.next || reviewed)
       ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-next>Next</button>'
       : '<span class="tutorial-hint">Tap the highlighted button</span>';
   const pct = Math.round((stepNumber / total) * 100);
@@ -2863,7 +2877,7 @@ function renderTutorialCoach(state) {
   `;
 }
 
-function positionTutorialCoach(state) {
+function positionTutorialCoach(state, doScroll = false) {
   if (!state.tutorial) return;
   const step = TUTORIAL_STEPS[state.tutorialStep];
   if (!step) return;
@@ -2885,9 +2899,8 @@ function positionTutorialCoach(state) {
     return;
   }
   overlay.classList.remove('is-centered');
-  const rect = el.getBoundingClientRect();
-  if (rect.top < 0 || rect.bottom > viewportH) {
-    el.scrollIntoView({ block: 'center' });
+  if (doScroll) {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
   }
   const r = el.getBoundingClientRect();
   const pad = 6;
@@ -3070,6 +3083,7 @@ async function handleBookerClick(event, state) {
   }
   if (target.closest('[data-tutorial-next]')) {
     state.tutorialStep += 1;
+    state.tutorialMaxStep = Math.max(state.tutorialMaxStep, state.tutorialStep);
     renderBooker(state);
     return;
   }
