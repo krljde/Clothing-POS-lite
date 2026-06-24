@@ -129,9 +129,10 @@ const TUTORIAL_STEPS = [
     done: s => Boolean(s.surrenderCardId)
   },
   {
-    anchor: '[data-get-code]',
-    title: 'Bind & get code',
-    body: 'Tap Get code, fill the password, go Next, then Submit. Tap New email if a variant is taken.',
+    anchor: null,
+    float: true,
+    title: 'Surrender the account',
+    body: 'Use the dot email shown. Tap Get code if you need a code for binding. Enter the password you used for the account, then tap Submit.',
     done: s => {
       const c = s.cards.find(x => x.id === 'tut-card');
       return Boolean(c && c.status === 'surrendered');
@@ -2850,14 +2851,15 @@ function renderTutorialCoach(state) {
   const showBack = state.tutorialStep > 0;
   const showSpotlight = Boolean(step.anchor);
   const reviewed = state.tutorialStep < state.tutorialMaxStep;
+  const blocking = !step.anchor && !step.float;
   const advance = step.finish
     ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-exit>Finish</button>'
     : (step.next || reviewed)
       ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-next>Next</button>'
-      : '<span class="tutorial-hint">Tap the highlighted button</span>';
+      : `<span class="tutorial-hint">${step.float ? 'Finish the steps to continue' : 'Tap the highlighted button'}</span>`;
   const pct = Math.round((stepNumber / total) * 100);
   return `
-    <div class="tutorial-overlay${showSpotlight ? '' : ' is-centered'}" role="dialog" aria-modal="true" aria-label="Practice walkthrough">
+    <div class="tutorial-overlay${blocking ? ' is-centered' : ''}" role="dialog" aria-modal="true" aria-label="Practice walkthrough">
       ${showSpotlight ? '<div class="tutorial-spotlight" data-tutorial-spotlight aria-hidden="true"></div>' : ''}
       <div class="tutorial-callout" data-tutorial-callout>
         <div class="tutorial-top">
@@ -2889,6 +2891,18 @@ function positionTutorialCoach(state, doScroll = false) {
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
   const margin = 8;
+  if (step.float) {
+    // Non-blocking summary tooltip pinned at the top — the booker interacts
+    // with the modal below it.
+    overlay.classList.remove('is-centered');
+    if (spotlight) spotlight.style.display = 'none';
+    callout.style.position = 'fixed';
+    callout.style.transform = 'none';
+    const cw = callout.getBoundingClientRect().width || Math.min(280, viewportW - 24);
+    callout.style.left = `${Math.max(margin, (viewportW - cw) / 2)}px`;
+    callout.style.top = `calc(${margin}px + env(safe-area-inset-top))`;
+    return;
+  }
   if (!el) {
     // Intentionally anchorless steps dim + block the screen; an anchored step
     // whose target is momentarily absent (e.g. inside the surrender modal mid-
