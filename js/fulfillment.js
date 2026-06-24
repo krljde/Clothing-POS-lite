@@ -280,6 +280,7 @@ function initOwnerFulfillment() {
   });
   root.addEventListener('click', event => handleOwnerClick(event, owner));
   root.addEventListener('submit', event => handleOwnerSubmit(event, owner));
+  root.addEventListener('paste', event => handleCartUrlPaste(event));
   root.addEventListener('focusout', event => handleValidationBlur(event));
   root.addEventListener('input', event => {
     handleOwnerCustomerAutofill(event, owner);
@@ -1599,6 +1600,14 @@ async function postNowFromPending(owner) {
   }
 }
 
+/* Owners often paste the whole SHEIN share blurb ("I found some great items…\n<url>").
+   Pull out the first http(s) link and drop the surrounding text. */
+function extractCartUrl(text) {
+  const raw = String(text || '').trim();
+  const match = raw.match(/https?:\/\/\S+/i);
+  return match ? match[0].trim() : raw;
+}
+
 function readCheckoutEntry(form, options = {}) {
   const data = new FormData(form);
   const items = parseItemLines(data.get('itemLines'));
@@ -1608,7 +1617,7 @@ function readCheckoutEntry(form, options = {}) {
     customerAddress: String(data.get('customerAddress') || '').trim(),
     voucher: String(data.get('voucher') || '').trim(),
     expectedTotal: numberValue(data.get('expectedTotal'), -1),
-    cartUrl: String(data.get('cartUrl') || '').trim(),
+    cartUrl: extractCartUrl(data.get('cartUrl')),
     items,
     notes: String(data.get('checkoutNotes') || '').trim()
   };
@@ -1665,6 +1674,19 @@ function handleStepClick(event, target) {
     setStepFormIndex(form, current - 1, { validate: false });
   }
   return true;
+}
+
+function handleCartUrlPaste(event) {
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement) || field.name !== 'cartUrl') return;
+  const pasted = event.clipboardData?.getData('text') || '';
+  const url = extractCartUrl(pasted);
+  // Only intervene when the paste carried extra text — leave clean URLs alone.
+  if (url && url !== pasted.trim()) {
+    event.preventDefault();
+    field.value = url;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 }
 
 function handleValidationBlur(event) {
