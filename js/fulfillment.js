@@ -2890,7 +2890,10 @@ function positionTutorialCoach(state, doScroll = false) {
   const viewportH = window.innerHeight;
   const margin = 8;
   if (!el) {
-    overlay.classList.add('is-centered');
+    // Intentionally anchorless steps dim + block the screen; an anchored step
+    // whose target is momentarily absent (e.g. inside the surrender modal mid-
+    // navigation) must keep the background tappable so the booker can finish.
+    overlay.classList.toggle('is-centered', !step.anchor);
     if (spotlight) spotlight.style.display = 'none';
     callout.style.position = 'fixed';
     callout.style.left = '50%';
@@ -3012,7 +3015,10 @@ function renderSurrenderModal(state) {
 async function handleBookerClick(event, state) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (handleStepClick(event, target)) return;
+  if (handleStepClick(event, target)) {
+    if (state.tutorial) positionTutorialCoach(state);
+    return;
+  }
   if (target.closest('[data-booker-refresh]')) {
     await loadBookerSession(state);
     return;
@@ -3159,6 +3165,7 @@ async function getSurrenderCode(button, state) {
       <span class="field-main mono">${escapeHtml(code)}</span>
       <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(code)}">${icon('copy')}<span>Copy</span></button>
     `;
+    if (state.tutorial) positionTutorialCoach(state);
     return;
   }
 
