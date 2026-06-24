@@ -1859,7 +1859,7 @@ body.booker-route {
   pointer-events: none;
 }
 .tutorial-overlay.is-centered {
-  background: rgba(20, 16, 14, .62);
+  background: rgba(20, 16, 14, .5);
   pointer-events: auto;
 }
 .tutorial-spotlight {
@@ -1870,17 +1870,17 @@ body.booker-route {
   height: 0;
   border: 2px solid var(--accent);
   border-radius: 12px;
-  box-shadow: 0 0 0 9999px rgba(20, 16, 14, .62);
+  box-shadow: 0 0 0 9999px rgba(20, 16, 14, .5);
   pointer-events: none;
   transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
 }
 .tutorial-callout {
   position: fixed;
   width: max-content;
-  max-width: min(300px, calc(100vw - 32px));
+  max-width: min(280px, calc(100vw - 24px));
   display: grid;
-  gap: 10px;
-  padding: 16px;
+  gap: 7px;
+  padding: 12px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1888,112 +1888,169 @@ body.booker-route {
   pointer-events: auto;
   margin: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right)) max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
 }
+.tutorial-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tutorial-step-count {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tutorial-exit {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tutorial-exit:hover { color: var(--text); background: var(--surface-2); }
+.tutorial-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.tutorial-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width .2s ease;
+}
 .tutorial-callout h4 {
-  margin: 0;
-  font-size: 18px;
+  margin: 1px 0 0;
+  font-size: 16px;
   line-height: 1.25;
   color: var(--text);
   text-wrap: balance;
 }
 .tutorial-callout p {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--text);
   text-wrap: pretty;
 }
-.tutorial-progress {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
-.tutorial-step-count {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-2);
-}
-.tutorial-progress-actions {
-  display: flex;
+.tutorial-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   align-items: center;
   gap: 8px;
+  margin-top: 3px;
 }
 .tutorial-btn {
-  min-height: 44px;
-  padding: 0 16px;
+  min-height: 42px;
+  width: 100%;
+  padding: 0 12px;
 }
 .tutorial-hint {
   font-size: 12px;
   font-weight: 700;
   color: var(--accent);
-  text-align: right;
+  text-align: center;
+  align-self: center;
 }
-.tutorial-exit-link {
-  justify-self: center;
-  min-height: 44px;
-  padding: 8px 12px;
-  background: none;
-  border: 0;
-  color: var(--text-2);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-/* Proof mockup (CSS-only, no PII) */
+/* Proof mockup — fake SHEIN-style order screenshot (CSS-only, no real data/PII) */
 .booker-wt-proof {
   display: grid;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 12px;
+  gap: 7px;
+  margin-top: 2px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--surface);
+}
+.wt-proof-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+.wt-proof-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2f6bff;
+}
+.wt-proof-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wt-proof-thumb {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 38px;
+  border-radius: 5px;
   background: var(--surface-2);
 }
-.booker-wt-proof-head {
+.wt-proof-itxt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.wt-proof-itxt strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wt-proof-itxt span {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wt-proof-price {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.wt-proof-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-}
-.booker-wt-proof-thumb {
-  width: 25%;
-  aspect-ratio: 1 / 1;
-  border-radius: 8px;
-  background: var(--border);
-}
-.booker-wt-proof-pill {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--accent-soft);
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  font-size: 11px;
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 700;
 }
-.booker-wt-proof-line {
-  height: 10px;
-  width: 80%;
-  border-radius: 6px;
-  background: var(--border);
+.wt-proof-meta .wt-proof-total {
+  font-weight: 800;
+  color: var(--text);
 }
-.booker-wt-proof-line.short { width: 55%; }
 .booker-wt-proof-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 .booker-wt-proof-voucher {
-  padding: 4px 12px;
+  flex: 0 0 auto;
+  padding: 3px 11px;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 .booker-wt-proof-caption {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
 }

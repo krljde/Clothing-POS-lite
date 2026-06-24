@@ -67,19 +67,19 @@ const TUTORIAL_STEPS = [
   {
     anchor: null,
     title: 'Practice mode',
-    body: "Let's run through a real order — nothing here is real. The golden rule: 1 account = 1 CO.",
+    body: "Quick practice run — nothing here is real. Golden rule: 1 account = 1 CO.",
     next: true
   },
   {
     anchor: '[data-booker-tab="unclaimed"]',
     title: 'Unclaimed',
-    body: 'Open the Unclaimed tab to see accounts you can take.',
+    body: 'Open the Unclaimed tab.',
     done: s => s.activeTab === 'unclaimed'
   },
   {
     anchor: '[data-claim-card]',
     title: 'Claim a CO',
-    body: 'Each card shows the vouchers needed. Tap Claim to take this account.',
+    body: 'The card shows the vouchers needed. Tap Claim.',
     done: s => {
       const c = s.cards.find(x => x.id === 'tut-card');
       return Boolean(c && normalizeBookerName(c.bookerName) === normalizeBookerName(s.bookerName));
@@ -88,44 +88,44 @@ const TUTORIAL_STEPS = [
   {
     anchor: '[data-toggle-booker-checkout]',
     title: 'Open a checkout',
-    body: "Tap a customer's checkout to see its items and cart. Checkouts are per voucher — not bulk.",
+    body: 'Tap a checkout to open it. One checkout = one voucher.',
     done: s => s.expandedCheckoutIds.size > 0
   },
   {
     anchor: '.booker-cart-actions',
     title: 'Verify each cart',
-    body: "Open each cart with Copy link or Open cart in SHEIN. Make sure the items are still available for the discount and the total matches. If not, tap Can't order this — you'll get another checkout with the same voucher. If no new one appears, there's no available checkout for that voucher right now.",
+    body: 'Open the cart, then check the items are available for the discount and the total matches.',
     next: true
   },
   {
     anchor: '[data-mark-checkout="fulfilled"]',
     title: 'Mark ordered',
-    body: 'Enter the Refund (₱), then tap Mark as ordered.',
+    body: 'Only add a Refund (₱) if you used the cancel method, then tap Mark as ordered.',
     done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'fulfilled')
   },
   {
     anchor: '[data-mark-checkout="cannot_fulfill"]',
     title: "Can't order this",
-    body: "If a cart can't be ordered, tap Can't order this. The system gives you a replacement with the same voucher; if none appears, there's none available right now.",
+    body: "Tap Can't order this. You'll be asked why — an example is filled in, just tap Submit. You'll get a same-voucher replacement if one's available.",
     done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'cannot_fulfill')
   },
   {
     anchor: null,
     title: 'Send proof',
-    body: "After ordering, screenshot the SHEIN order proof and send it to the owner on Messenger, saying which checkout it's for (e.g. 'screenshot + 79%').",
+    body: "After ordering, screenshot the order proof and send it to the owner with the voucher (e.g. '+79%').",
     proof: true,
     next: true
   },
   {
     anchor: '[data-open-surrender]',
     title: 'Surrender',
-    body: 'When every checkout is done, tap Surrender Account.',
+    body: 'All checkouts done — tap Surrender Account.',
     done: s => Boolean(s.surrenderCardId)
   },
   {
     anchor: '[data-get-code]',
     title: 'Bind & get code',
-    body: 'Bind to the email shown, tap Get code for the verification code, fill the password, then Submit. If a dot-email variant is taken, tap New email.',
+    body: 'Tap Get code, fill the password, then Submit. Tap New email if a variant is taken.',
     done: s => {
       const c = s.cards.find(x => x.id === 'tut-card');
       return Boolean(c && c.status === 'surrendered');
@@ -134,7 +134,7 @@ const TUTORIAL_STEPS = [
   {
     anchor: null,
     title: "You're set!",
-    body: 'The owner reviews your surrendered account — then you get paid. Exit practice to go to your real board.',
+    body: "That's the whole flow! The owner reviews, then you get paid. Tap Finish to go to your real board.",
     finish: true
   }
 ];
@@ -2754,16 +2754,22 @@ function renderExpiryHourOptions() {
 function renderBookerWalkthroughProof() {
   return `
     <div class="booker-wt-proof" aria-hidden="true">
-      <div class="booker-wt-proof-head">
-        <span class="booker-wt-proof-thumb"></span>
-        <span class="booker-wt-proof-pill">Processing</span>
+      <div class="wt-proof-bar"><span class="wt-proof-dot"></span>Processing</div>
+      <div class="wt-proof-item">
+        <span class="wt-proof-thumb"></span>
+        <span class="wt-proof-itxt"><strong>Beige midi dress</strong><span>Apricot / XS · x1</span></span>
+        <span class="wt-proof-price">₱194</span>
       </div>
-      <span class="booker-wt-proof-line"></span>
-      <span class="booker-wt-proof-line short"></span>
+      <div class="wt-proof-item">
+        <span class="wt-proof-thumb"></span>
+        <span class="wt-proof-itxt"><strong>Office blouse</strong><span>Light Yellow / XS · x1</span></span>
+        <span class="wt-proof-price">₱128</span>
+      </div>
+      <div class="wt-proof-meta"><span>Order #GSH17J35…</span><span class="wt-proof-total">Total ₱322</span></div>
       <div class="booker-wt-proof-foot">
         <span class="booker-wt-proof-voucher">79%</span>
+        <span class="booker-wt-proof-caption">Screenshot this, then send it + the voucher to Messenger.</span>
       </div>
-      <p class="booker-wt-proof-caption">Send the screenshot + voucher to Messenger.</p>
     </div>
   `;
 }
@@ -2834,22 +2840,24 @@ function renderTutorialCoach(state) {
     ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-exit>Finish</button>'
     : step.next
       ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-next>Next</button>'
-      : '<span class="tutorial-hint">Do the highlighted step to continue</span>';
+      : '<span class="tutorial-hint">Tap the highlighted button</span>';
+  const pct = Math.round((stepNumber / total) * 100);
   return `
     <div class="tutorial-overlay${showSpotlight ? '' : ' is-centered'}" role="dialog" aria-modal="true" aria-label="Practice walkthrough">
       ${showSpotlight ? '<div class="tutorial-spotlight" data-tutorial-spotlight aria-hidden="true"></div>' : ''}
       <div class="tutorial-callout" data-tutorial-callout>
+        <div class="tutorial-top">
+          <span class="tutorial-step-count">Step ${stepNumber} of ${total}</span>
+          <button type="button" class="tutorial-exit" data-tutorial-exit>Exit</button>
+        </div>
+        <div class="tutorial-bar"><span style="width:${pct}%"></span></div>
         <h4>${escapeHtml(step.title)}</h4>
         <p>${escapeHtml(step.body)}</p>
         ${step.proof ? renderBookerWalkthroughProof() : ''}
-        <div class="tutorial-progress">
-          <span class="tutorial-step-count">Step ${stepNumber} of ${total}</span>
-          <div class="tutorial-progress-actions">
-            ${showBack ? '<button type="button" class="btn btn-ghost tutorial-btn" data-tutorial-back>Back</button>' : ''}
-            ${advance}
-          </div>
+        <div class="tutorial-nav">
+          ${showBack ? '<button type="button" class="btn btn-ghost tutorial-btn" data-tutorial-back>Back</button>' : '<span></span>'}
+          ${advance}
         </div>
-        ${step.finish ? '' : '<button type="button" class="tutorial-exit-link" data-tutorial-exit>Exit practice</button>'}
       </div>
     </div>
   `;
@@ -3283,6 +3291,7 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     const reason = await showPrompt('Why can this checkout not be fulfilled?', {
       label: 'Reason',
       placeholder: 'Add the reason for the owner...',
+      initial: isSimMode(state) ? 'Discount not applicable' : '',
       required: true,
       multiline: true
     });
