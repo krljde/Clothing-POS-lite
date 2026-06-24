@@ -1004,6 +1004,7 @@ body.booker-route .fab-backdrop {
   flex-shrink: 0; transition: color var(--t), background var(--t);
 }
 .gmail-dot-copy:hover { color: var(--accent); background: var(--accent-soft); }
+.gmail-dot-copy .ui-icon { width: 16px; height: 16px; }
 
 /* Fulfillment */
 .fulfillment-root,
@@ -1662,7 +1663,6 @@ body.booker-route {
   min-width: 0;
 }
 .booker-detail-grid .span-2 { grid-column: 1 / -1; }
-.booker-copy-field,
 .booker-cart-actions,
 .booker-refund-inline {
   display: flex;
@@ -1670,13 +1670,37 @@ body.booker-route {
   gap: 8px;
   min-width: 0;
 }
-.booker-copy-field .field-main {
+.booker-dot-value {
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-word;
   min-width: 0;
+}
+.booker-pw-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.booker-pw-group .form-input {
   flex: 1;
+  padding-right: 64px;
 }
-.booker-copy-field .icon-btn-sm {
-  flex: 0 0 auto;
+.booker-pw-icon {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
 }
+.booker-pw-icon:hover { color: var(--accent); }
+.booker-pw-icon .ui-icon { width: 18px; height: 18px; }
+.booker-pw-enter { right: 32px; cursor: default; opacity: .5; }
+.booker-pw-enter:hover { color: var(--text-3); }
 .booker-cart-actions {
   flex-wrap: wrap;
 }

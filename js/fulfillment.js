@@ -58,6 +58,9 @@ const ICON_PATHS = {
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path>',
   trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle>',
+  'eye-off': '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path><line x1="2" x2="22" y1="2" y2="22"></line>',
+  'corner-down-left': '<polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path>',
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>'
 };
 
@@ -67,7 +70,7 @@ const TUTORIAL_STEPS = [
   {
     anchor: null,
     title: 'Practice mode',
-    body: "Quick practice run — nothing here is real. Golden rule: 1 account = 1 CO.",
+    body: "Quick practice run — nothing here is real.",
     next: true
   },
   {
@@ -132,7 +135,7 @@ const TUTORIAL_STEPS = [
     anchor: null,
     float: true,
     title: 'Surrender the account',
-    body: 'Use the dot email shown. Tap Get code if you need a code for binding. Enter the password you used for the account, then tap Submit.',
+    body: "Use the dot email shown. Tap regenerate if your current dot email can’t be bind. Tap Get code for binding. Enter the password you used for the account, then tap Submit.",
     done: s => {
       const c = s.cards.find(x => x.id === 'tut-card');
       return Boolean(c && c.status === 'surrendered');
@@ -2460,6 +2463,7 @@ function renderBooker(state) {
   if (state.tutorial) {
     positionTutorialCoach(state, true);
     maybeAdvanceTutorial(state);
+    maybeTutorialAutoSurrender(state);
   }
 }
 
@@ -2720,10 +2724,10 @@ function renderBookerCopyField(label, value, fallback, copyLabel, extraClass = '
   return `
     <div class="${extraClass}">
       <span class="field-label">${escapeHtml(label)}</span>
-      <span class="booker-copy-field">
-        <span class="field-main wrap">${escapeHtml(text || fallback)}</span>
-        ${text ? iconButton(copyLabel, 'copy', `type="button" data-copy-text="${escapeAttr(text)}"`, 'ghost', 'sm') : ''}
-      </span>
+      <div class="gmail-dot-item available">
+        <span class="booker-dot-value">${escapeHtml(text || fallback)}</span>
+        ${text ? `<button class="gmail-dot-copy" type="button" data-copy-text="${escapeAttr(text)}" title="${escapeAttr(copyLabel)}">${icon('copy')}</button>` : ''}
+      </div>
     </div>
   `;
 }
@@ -2832,8 +2836,6 @@ function buildTutorialState(state) {
 }
 
 function maybeAdvanceTutorial(state) {
-  // Only auto-advance at the frontier — lets the booker go Back and review
-  // already-completed steps without being bounced forward again.
   if (state.tutorialStep !== state.tutorialMaxStep) return;
   const step = TUTORIAL_STEPS[state.tutorialStep];
   if (step && typeof step.done === 'function' && step.done(state)) {
@@ -2841,6 +2843,35 @@ function maybeAdvanceTutorial(state) {
     state.tutorialMaxStep = state.tutorialStep;
     renderBooker(state);
   }
+}
+
+function maybeTutorialAutoSurrender(state) {
+  if (!state.tutorial || !state.surrenderCardId) return;
+  const step = TUTORIAL_STEPS[state.tutorialStep];
+  if (!step || !step.float) return;
+  const pw = state.root.querySelector('[name="accountPassword"]');
+  if (!pw || pw.value || pw.dataset.autoFilling) return;
+  pw.dataset.autoFilling = '1';
+  const fake = 'Shein2024!';
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i < fake.length) {
+      pw.value += fake[i];
+      pw.dispatchEvent(new Event('input', { bubbles: true }));
+      i++;
+    } else {
+      clearInterval(iv);
+      pw.dispatchEvent(new Event('change', { bubbles: true }));
+      pw.dispatchEvent(new Event('blur', { bubbles: true }));
+      setTimeout(() => {
+        const form = state.root.querySelector('[data-surrender-form]');
+        if (form) {
+          const submit = form.querySelector('[type="submit"]');
+          if (submit) submit.click();
+        }
+      }, 400);
+    }
+  }, 50);
 }
 
 function renderTutorialCoach(state) {
@@ -2981,7 +3012,9 @@ function renderSurrenderModal(state) {
               <h4>Account Login</h4>
               <div class="booker-surrender-target">
                 <span class="field-label">Bind to this email</span>
-                <span class="field-main wrap">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                <div class="gmail-dot-item available">
+                  <span class="gmail-dot-email">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                </div>
                 <input type="hidden" name="generatedEmail" value="${escapeAttr(generatedEmail)}" />
                 <div class="toolbar">
                   <button type="button" class="btn btn-secondary btn-sm" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}>${icon('rotate')}<span>New email</span></button>
@@ -2991,7 +3024,11 @@ function renderSurrenderModal(state) {
               </div>
               <div class="form-group">
                 <label class="form-label">Password *</label>
-                <input class="form-input" name="accountPassword" type="password" autocomplete="current-password" required data-step-autoadvance />
+                <div class="booker-pw-group">
+                  <input class="form-input" name="accountPassword" type="password" autocomplete="current-password" required data-step-autoadvance />
+                  <button type="button" class="booker-pw-icon" data-toggle-password title="Show password">${icon('eye')}</button>
+                  <span class="booker-pw-icon booker-pw-enter" title="Enter to continue">${icon('corner-down-left')}</span>
+                </div>
               </div>
             </div>
           </section>
@@ -3017,7 +3054,6 @@ function renderSurrenderModal(state) {
           <div class="fulfillment-step-footer">
             ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
             <span class="fulfillment-step-count" data-step-count>Step 1 of 2</span>
-            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
             <button type="submit" class="btn btn-primary btn-full" ${generatedEmail ? '' : 'disabled'}>Submit Surrender</button>
           </div>
         </form>
@@ -3031,6 +3067,20 @@ async function handleBookerClick(event, state) {
   if (!target) return;
   if (handleStepClick(event, target)) {
     if (state.tutorial) positionTutorialCoach(state);
+    return;
+  }
+  if (target.closest('[data-toggle-password]')) {
+    const group = target.closest('.booker-pw-group');
+    const input = group?.querySelector('input');
+    if (input) {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const btn = group.querySelector('[data-toggle-password]');
+      if (btn) {
+        btn.innerHTML = icon(show ? 'eye-off' : 'eye');
+        btn.title = show ? 'Hide password' : 'Show password';
+      }
+    }
     return;
   }
   if (target.closest('[data-booker-refresh]')) {
