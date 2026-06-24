@@ -300,8 +300,7 @@ button { cursor: pointer; border: none; background: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
-  .booker-wt-panels { scroll-behavior: auto; }
-  .booker-walkthrough-form .fulfillment-step-panel { transition: none !important; }
+  .tutorial-spotlight { transition: none !important; }
 }
 
 /* ─── Orders Table ────────────────────────────────────── */
@@ -1005,6 +1004,7 @@ body.booker-route .fab-backdrop {
   flex-shrink: 0; transition: color var(--t), background var(--t);
 }
 .gmail-dot-copy:hover { color: var(--accent); background: var(--accent-soft); }
+.gmail-dot-copy .ui-icon { width: 16px; height: 16px; }
 
 /* Fulfillment */
 .fulfillment-root,
@@ -1663,7 +1663,6 @@ body.booker-route {
   min-width: 0;
 }
 .booker-detail-grid .span-2 { grid-column: 1 / -1; }
-.booker-copy-field,
 .booker-cart-actions,
 .booker-refund-inline {
   display: flex;
@@ -1671,13 +1670,37 @@ body.booker-route {
   gap: 8px;
   min-width: 0;
 }
-.booker-copy-field .field-main {
+.booker-dot-value {
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-word;
   min-width: 0;
+}
+.booker-pw-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.booker-pw-group .form-input {
   flex: 1;
+  padding-right: 64px;
 }
-.booker-copy-field .icon-btn-sm {
-  flex: 0 0 auto;
+.booker-pw-icon {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
 }
+.booker-pw-icon:hover { color: var(--accent); }
+.booker-pw-icon .ui-icon { width: 18px; height: 18px; }
+.booker-pw-enter { right: 32px; cursor: default; opacity: .5; }
+.booker-pw-enter:hover { color: var(--text-3); }
 .booker-cart-actions {
   flex-wrap: wrap;
 }
@@ -1852,153 +1875,212 @@ body.booker-route {
   flex-shrink: 0;
 }
 
-/* First-time booker walkthrough — mobile-first bottom-sheet overlay */
-.booker-walkthrough-modal {
+/* Interactive coach-mark tutorial — mobile-first overlay with spotlight */
+.tutorial-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: end center;
-  background: rgba(34, 30, 28, .42);
+  z-index: 150;
+  pointer-events: none;
 }
-.booker-walkthrough-panel {
-  width: 100%;
-  max-width: 520px;
-  max-height: 100vh;
-  max-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+.tutorial-overlay.is-centered {
+  background: rgba(20, 16, 14, .5);
+  pointer-events: auto;
+}
+.tutorial-spotlight {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(20, 16, 14, .5);
+  pointer-events: none;
+  transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
+}
+.tutorial-callout {
+  position: fixed;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 24px));
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
-  padding-top: max(16px, env(safe-area-inset-top));
+  pointer-events: auto;
+  margin: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right)) max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
 }
-.booker-walkthrough-panel .fulfillment-panel-head {
-  padding: 0 16px;
-  flex-shrink: 0;
-}
-.booker-walkthrough-form {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-.booker-walkthrough-form .fulfillment-stepper {
-  padding: 12px 16px 4px;
-  flex-shrink: 0;
-}
-.booker-wt-panels {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 8px 16px 12px;
-}
-.booker-wt-panels::-webkit-scrollbar { display: none; }
-.booker-walkthrough-form .fulfillment-step-panel.is-active {
-  gap: 10px;
-  align-content: start;
-}
-.booker-wt-badge {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 800;
-  font-size: 16px;
-}
-.booker-walkthrough-form .fulfillment-step-panel h4 {
-  margin: 0;
-  font-size: 19px;
-  line-height: 1.25;
-  text-wrap: balance;
-}
-.booker-walkthrough-form .fulfillment-step-panel p {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--text);
-  text-wrap: pretty;
-}
-.booker-walkthrough-form .fulfillment-step-footer {
-  position: sticky;
-  bottom: 0;
-  flex-shrink: 0;
-  padding: 12px 16px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-}
-.booker-wt-skip {
-  display: block;
-  width: 100%;
-  padding: 8px 0 max(10px, env(safe-area-inset-bottom));
-  background: var(--surface);
-  border: 0;
-  color: var(--text-2);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  text-align: center;
-  flex-shrink: 0;
-}
-/* Proof mockup (CSS-only, no PII) */
-.booker-wt-proof {
-  display: grid;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-.booker-wt-proof-head {
+.tutorial-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
-.booker-wt-proof-thumb {
-  width: 25%;
-  aspect-ratio: 1 / 1;
-  border-radius: 8px;
-  background: var(--border);
+.tutorial-step-count {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
-.booker-wt-proof-pill {
-  padding: 4px 10px;
+.tutorial-exit {
+  min-height: 30px;
+  padding: 4px 12px;
   border-radius: 999px;
-  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text-2);
+  font-family: inherit;
   font-size: 12px;
   font-weight: 700;
+  cursor: pointer;
 }
-.booker-wt-proof-line {
-  height: 10px;
-  width: 80%;
-  border-radius: 6px;
-  background: var(--border);
+.tutorial-exit:hover { color: var(--text); background: var(--surface-2); }
+.tutorial-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
 }
-.booker-wt-proof-line.short { width: 55%; }
+.tutorial-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width .2s ease;
+}
+.tutorial-callout h4 {
+  margin: 1px 0 0;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--text);
+  text-wrap: balance;
+}
+.tutorial-callout p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.tutorial-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+.tutorial-btn {
+  min-height: 42px;
+  width: 100%;
+  padding: 0 12px;
+}
+.tutorial-hint {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: center;
+  align-self: center;
+}
+/* Proof mockup — fake SHEIN-style order screenshot (CSS-only, no real data/PII) */
+.booker-wt-proof {
+  display: grid;
+  gap: 7px;
+  margin-top: 2px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.wt-proof-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+.wt-proof-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2f6bff;
+}
+.wt-proof-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wt-proof-thumb {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 38px;
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+.wt-proof-itxt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.wt-proof-itxt strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wt-proof-itxt span {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wt-proof-price {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.wt-proof-cust {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  padding-top: 4px;
+}
+.wt-proof-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wt-proof-meta .wt-proof-total {
+  font-weight: 800;
+  color: var(--text);
+}
 .booker-wt-proof-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 .booker-wt-proof-voucher {
-  padding: 4px 12px;
+  flex: 0 0 auto;
+  padding: 3px 11px;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 .booker-wt-proof-caption {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
 }

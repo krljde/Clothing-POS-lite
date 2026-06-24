@@ -33,6 +33,12 @@ const SEARCH_PARAMS = new URLSearchParams(window.location.search);
 const IS_BOOKER_PORTAL = window.location.pathname.toLowerCase().endsWith('/booker.html')
   || SEARCH_PARAMS.has('booker');
 
+/* Sim mode = tutorial OR localhost ?mock. In sim mode every booker write path
+   short-circuits in memory — nothing reaches Firestore or the worker. */
+function isSimMode(state) {
+  return Boolean((state && state.tutorial) || (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')));
+}
+
 const ICON_PATHS = {
   activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>',
   'arrow-left': '<path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>',
@@ -52,42 +58,94 @@ const ICON_PATHS = {
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path>',
   trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle>',
+  'eye-off': '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path><line x1="2" x2="22" y1="2" y2="22"></line>',
+  'corner-down-left': '<polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path>',
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>'
 };
 
-const BOOKER_WALKTHROUGH_PANELS = [
+/* Interactive coach-mark tutorial. Steps re-anchor by CSS selector after every
+   render and advance via state predicates (NOT DOM listeners — refs die each render). */
+const TUTORIAL_STEPS = [
   {
-    title: 'Welcome',
-    body: 'This quick guide shows how to fulfill orders. The golden rule: 1 account = 1 CO. You can only claim a new CO when you\'re not already working on one — or when your last one is surrendered and just waiting for the owner\'s approval.'
+    anchor: null,
+    title: 'Practice mode',
+    body: "Quick practice run — nothing here is real.",
+    next: true
   },
   {
+    anchor: '[data-booker-tab="unclaimed"]',
+    title: 'Unclaimed',
+    body: 'Open the Unclaimed tab.',
+    done: s => s.activeTab === 'unclaimed'
+  },
+  {
+    anchor: '[data-claim-card]',
     title: 'Claim a CO',
-    body: 'Open the Unclaimed tab. Each card shows the vouchers needed. Tap Claim to take one account.'
+    body: 'The card shows the vouchers needed. Tap Claim.',
+    done: s => {
+      const c = s.cards.find(x => x.id === 'tut-card');
+      return Boolean(c && normalizeBookerName(c.bookerName) === normalizeBookerName(s.bookerName));
+    }
   },
   {
-    title: 'Review the checkouts',
-    body: 'Open your card to see the expected total for the whole account and each checkout. Checkouts are per voucher — not bulk. Tap a checkout for its items, contact, and cart.'
+    anchor: '[data-toggle-booker-checkout]',
+    title: 'Open a checkout',
+    body: 'Tap a checkout to open it. One checkout = one voucher.',
+    done: s => s.expandedCheckoutIds.size > 0
   },
   {
+    anchor: '.booker-cart-actions',
     title: 'Verify each cart',
-    body: 'For every checkout, use Copy link or Open cart in SHEIN. Check that (1) all items are still available for the discount, and (2) the expected total matches the SHEIN cart. If not, tap Can\'t order this — the system gives you a new checkout with the same voucher automatically.'
+    body: 'Open the cart, then check the items are available for the discount and the total matches.',
+    next: true
   },
   {
-    title: 'Get funds / unlock card',
-    body: 'Message the shop owner on Messenger for the funds or the unlock card so you can pay. Process each checkout per voucher, one at a time — not in bulk.'
+    anchor: '[data-checkout-refund]',
+    title: 'Refund',
+    body: 'If this CO used the Cancel Method, type how much refund here. Otherwise leave it 0.',
+    next: true
   },
   {
-    title: 'Refund & cancel method',
-    body: 'Enter the Refund (₱) for the checkout before you mark it ordered. If you used the cancel method (free shipping by canceling an order), note it and report it to the owner on Messenger together with the refund.'
+    anchor: '[data-mark-checkout="fulfilled"]',
+    title: 'Mark ordered',
+    body: 'Then tap Mark as ordered.',
+    done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'fulfilled')
   },
   {
-    title: 'Mark ordered + send proof',
-    body: 'After ordering, tap Mark as ordered. Screenshot the SHEIN order proof and send it to the owner on Messenger, saying which checkout it\'s for (e.g. \'screenshot + 79%\').',
-    proof: true
+    anchor: '[data-mark-checkout="cannot_fulfill"]',
+    title: "Can't order this",
+    body: "Tap Can't order this. You'll be asked why — an example is filled in, just tap Submit. You'll get a same-voucher replacement if one's available.",
+    done: s => (s.checkoutsByCard.get('tut-card') || []).some(c => c.status === 'cannot_fulfill')
   },
   {
-    title: 'Surrender & get paid',
-    body: 'When every checkout is done, tap Surrender Account. Bind it to the email shown (Bind to this email) and tap Get code for the verification code. If a dot-email variant can\'t be used, tap New email. The owner reviews your surrendered account — then you get paid.'
+    anchor: null,
+    title: 'Send proof',
+    body: "Screenshot the order's Processing tab and send it to the owner on Messenger with the customer's name + voucher (e.g. Martha Sunga – 60%).",
+    proof: true,
+    next: true
+  },
+  {
+    anchor: '[data-open-surrender]',
+    title: 'Surrender',
+    body: 'All checkouts done — tap Surrender Account.',
+    done: s => Boolean(s.surrenderCardId)
+  },
+  {
+    anchor: null,
+    float: true,
+    title: 'Surrender the account',
+    body: "Use the dot email shown. Tap regenerate if your current dot email can’t be bind. Tap Get code for binding. Enter the password you used for the account, then tap Submit.",
+    done: s => {
+      const c = s.cards.find(x => x.id === 'tut-card');
+      return Boolean(c && c.status === 'surrendered');
+    }
+  },
+  {
+    anchor: null,
+    title: "You're set!",
+    body: "That's the whole flow! The owner reviews, then you get paid. Tap Finish to go to your real board.",
+    finish: true
   }
 ];
 
@@ -2079,8 +2137,10 @@ function initBookerApp() {
     accessStatus: 'checking',
     accessMessage: '',
     surrenderCardId: '',
-    walkthroughOpen: false,
-    walkthroughChecked: false,
+    tutorial: false,
+    tutorialStep: 0,
+    tutorialMaxStep: 0,
+    tutorialChecked: false,
     retiredEmails: new Set(),
     expandedCardIds: new Set(),
     expandedCheckoutIds: new Set(),
@@ -2092,6 +2152,9 @@ function initBookerApp() {
   root.addEventListener('submit', event => handleBookerSubmit(event, state));
   root.addEventListener('focusout', event => handleValidationBlur(event));
   root.addEventListener('input', event => handleValidationInput(event));
+  const reposition = () => { if (state.tutorial) positionTutorialCoach(state); };
+  window.addEventListener('resize', reposition);
+  window.addEventListener('scroll', reposition, { passive: true });
   if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
     applyMockBookerState(state);
     renderBooker(state);
@@ -2368,9 +2431,12 @@ function renderBooker(state) {
     state.root.innerHTML = '<section class="booker-card"><h1>Board unavailable</h1><p class="fulfillment-muted">This link is invalid or has been revoked.</p></section>';
     return;
   }
-  if (!state.walkthroughChecked && state.bookerName) {
-    state.walkthroughChecked = true;
-    if (!hasSeenWalkthrough(state.bookerName)) state.walkthroughOpen = true;
+  if (!state.tutorialChecked && state.bookerName && !state.tutorial) {
+    state.tutorialChecked = true;
+    if (!hasSeenWalkthrough(state.bookerName)) {
+      startBookerTutorial(state);
+      return;
+    }
   }
   const activeCard = getActiveBookerCard(state);
   const unclaimedCards = state.cards.filter(card => card.status === 'open' && !card.bookerName);
@@ -2391,10 +2457,14 @@ function renderBooker(state) {
     ${renderBookerTabContent(state, unclaimedCards, activeCards)}
     ${renderBookerBottomNav(state, unclaimedCards.length, activeCards.length)}
     ${state.surrenderCardId ? renderSurrenderModal(state) : ''}
-    ${state.walkthroughOpen ? renderBookerWalkthrough(state) : ''}
+    ${state.tutorial ? renderTutorialCoach(state) : ''}
   `;
   initializeStepForms(state.root);
-  if (state.walkthroughOpen) attachWalkthroughSwipe(state);
+  if (state.tutorial) {
+    positionTutorialCoach(state, true);
+    maybeAdvanceTutorial(state);
+    maybeTutorialAutoSurrender(state);
+  }
 }
 
 function renderBookerCodeForm(state) {
@@ -2654,10 +2724,10 @@ function renderBookerCopyField(label, value, fallback, copyLabel, extraClass = '
   return `
     <div class="${extraClass}">
       <span class="field-label">${escapeHtml(label)}</span>
-      <span class="booker-copy-field">
-        <span class="field-main wrap">${escapeHtml(text || fallback)}</span>
-        ${text ? iconButton(copyLabel, 'copy', `type="button" data-copy-text="${escapeAttr(text)}"`, 'ghost', 'sm') : ''}
-      </span>
+      <div class="gmail-dot-item available">
+        <span class="booker-dot-value">${escapeHtml(text || fallback)}</span>
+        ${text ? `<button class="gmail-dot-copy" type="button" data-copy-text="${escapeAttr(text)}" title="${escapeAttr(copyLabel)}">${icon('copy')}</button>` : ''}
+      </div>
     </div>
   `;
 }
@@ -2696,78 +2766,218 @@ function renderExpiryHourOptions() {
 function renderBookerWalkthroughProof() {
   return `
     <div class="booker-wt-proof" aria-hidden="true">
-      <div class="booker-wt-proof-head">
-        <span class="booker-wt-proof-thumb"></span>
-        <span class="booker-wt-proof-pill">Processing</span>
+      <div class="wt-proof-bar"><span class="wt-proof-dot"></span>Processing</div>
+      <div class="wt-proof-item">
+        <span class="wt-proof-thumb"></span>
+        <span class="wt-proof-itxt"><strong>Beige midi dress</strong><span>Apricot / XS · x1</span></span>
+        <span class="wt-proof-price">₱194</span>
       </div>
-      <span class="booker-wt-proof-line"></span>
-      <span class="booker-wt-proof-line short"></span>
+      <div class="wt-proof-item">
+        <span class="wt-proof-thumb"></span>
+        <span class="wt-proof-itxt"><strong>Office blouse</strong><span>Light Yellow / XS · x1</span></span>
+        <span class="wt-proof-price">₱128</span>
+      </div>
+      <div class="wt-proof-cust">Martha Sunga · 0917 ··· ····</div>
+      <div class="wt-proof-meta"><span>Order #GSH17J35…</span><span class="wt-proof-total">Total ₱322</span></div>
       <div class="booker-wt-proof-foot">
-        <span class="booker-wt-proof-voucher">79%</span>
+        <span class="booker-wt-proof-voucher">60%</span>
+        <span class="booker-wt-proof-caption">Send to Messenger: customer name + voucher.</span>
       </div>
-      <p class="booker-wt-proof-caption">Send the screenshot + voucher to Messenger.</p>
     </div>
   `;
 }
 
-function renderBookerWalkthrough(state) {
-  const total = BOOKER_WALKTHROUGH_PANELS.length;
-  const firstRun = !hasSeenWalkthrough(state.bookerName);
-  const panels = BOOKER_WALKTHROUGH_PANELS.map((panel, index) => `
-    <section class="fulfillment-step-panel${index === 0 ? ' is-active' : ''}" data-step="${index}">
-      <span class="booker-wt-badge">${index + 1}</span>
-      <h4>${escapeHtml(panel.title)}</h4>
-      <p>${escapeHtml(panel.body)}</p>
-      ${panel.proof ? renderBookerWalkthroughProof() : ''}
-    </section>
-  `).join('');
+/* ─── Interactive coach-mark tutorial ─── */
+function startBookerTutorial(state) {
+  state.tutorial = true;
+  state.tutorialStep = 0;
+  state.tutorialMaxStep = 0;
+  buildTutorialState(state);
+  renderBooker(state);
+}
+
+function endBookerTutorial(state) {
+  markWalkthroughSeen(state.bookerName);
+  state.tutorial = false;
+  state.tutorialStep = 0;
+  state.surrenderCardId = '';
+  state.expandedCardIds = new Set();
+  state.expandedCheckoutIds = new Set();
+  state.cards = [];
+  state.checkoutsByCard = new Map();
+  state.retiredEmails = new Set();
+  if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
+    applyMockBookerState(state);
+    renderBooker(state);
+    return;
+  }
+  loadBookerBoard(state);
+}
+
+function buildTutorialState(state) {
+  state.bookerName = state.bookerName || 'You';
+  state.boardId = 'tutorial-board';
+  state.board = normalizeBoard('tutorial-board', {
+    active: true,
+    gmailBase: 'shopmain@gmail.com',
+    usedEmails: ['shopmain@gmail.com']
+  });
+  state.accessStatus = 'ready';
+  state.loading = false;
+  state.retiredEmails = new Set();
+  const co1 = mockCheckout('tut-co1', 'Ana Cruz', '79%', 980, 'open');
+  const co2 = mockCheckout('tut-co2', 'Bea Lim', '60%', 1180, 'open');
+  const card = normalizeCard('tut-card', { status: 'open' });
+  state.cards = [card];
+  state.checkoutsByCard = new Map([['tut-card', [co1, co2]]]);
+  state.activeTab = 'unclaimed';
+  state.expandedCardIds = new Set();
+  state.expandedCheckoutIds = new Set();
+}
+
+function maybeAdvanceTutorial(state) {
+  if (state.tutorialStep !== state.tutorialMaxStep) return;
+  const step = TUTORIAL_STEPS[state.tutorialStep];
+  if (step && typeof step.done === 'function' && step.done(state)) {
+    state.tutorialStep += 1;
+    state.tutorialMaxStep = state.tutorialStep;
+    renderBooker(state);
+  }
+}
+
+function maybeTutorialAutoSurrender(state) {
+  if (!state.tutorial || !state.surrenderCardId) return;
+  const step = TUTORIAL_STEPS[state.tutorialStep];
+  if (!step || !step.float) return;
+  const pw = state.root.querySelector('[name="accountPassword"]');
+  if (!pw || pw.value || pw.dataset.autoFilling) return;
+  pw.dataset.autoFilling = '1';
+  const fake = 'Shein2024!';
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i < fake.length) {
+      pw.value += fake[i];
+      pw.dispatchEvent(new Event('input', { bubbles: true }));
+      i++;
+    } else {
+      clearInterval(iv);
+      pw.dispatchEvent(new Event('change', { bubbles: true }));
+      pw.dispatchEvent(new Event('blur', { bubbles: true }));
+      setTimeout(() => {
+        const form = state.root.querySelector('[data-surrender-form]');
+        if (form) {
+          const submit = form.querySelector('[type="submit"]');
+          if (submit) submit.click();
+        }
+      }, 400);
+    }
+  }, 50);
+}
+
+function renderTutorialCoach(state) {
+  const step = TUTORIAL_STEPS[state.tutorialStep];
+  if (!step) return '';
+  const total = TUTORIAL_STEPS.length;
+  const stepNumber = state.tutorialStep + 1;
+  const showBack = state.tutorialStep > 0;
+  const showSpotlight = Boolean(step.anchor);
+  const reviewed = state.tutorialStep < state.tutorialMaxStep;
+  const blocking = !step.anchor && !step.float;
+  const advance = step.finish
+    ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-exit>Finish</button>'
+    : (step.next || reviewed)
+      ? '<button type="button" class="btn btn-primary tutorial-btn" data-tutorial-next>Next</button>'
+      : `<span class="tutorial-hint">${step.float ? 'Finish the steps to continue' : 'Tap the highlighted button'}</span>`;
+  const pct = Math.round((stepNumber / total) * 100);
   return `
-    <div class="booker-walkthrough-modal" role="dialog" aria-modal="true" aria-label="How fulfillment works">
-      <div class="booker-walkthrough-panel">
-        <div class="fulfillment-panel-head">
-          <div>
-            <span class="page-kicker">Guide</span>
-            <h2>How fulfillment works</h2>
-          </div>
-          ${iconButton('Close', 'x', 'type="button" data-close-walkthrough', 'ghost', 'sm')}
+    <div class="tutorial-overlay${blocking ? ' is-centered' : ''}" role="dialog" aria-modal="true" aria-label="Practice walkthrough">
+      ${showSpotlight ? '<div class="tutorial-spotlight" data-tutorial-spotlight aria-hidden="true"></div>' : ''}
+      <div class="tutorial-callout" data-tutorial-callout>
+        <div class="tutorial-top">
+          <span class="tutorial-step-count">Step ${stepNumber} of ${total}</span>
+          <button type="button" class="tutorial-exit" data-tutorial-exit>Exit</button>
         </div>
-        <form class="booker-walkthrough-form fulfillment-step-form" data-walkthrough-form data-step-form data-step-index="0" novalidate>
-          ${renderStepProgress(total)}
-          <div class="booker-wt-panels" data-walkthrough-panels>
-            ${panels}
-          </div>
-          <div class="fulfillment-step-footer">
-            ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
-            <span class="fulfillment-step-count" data-step-count></span>
-            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
-            <button type="submit" class="btn btn-primary btn-full">Got it — start fulfilling</button>
-          </div>
-          ${firstRun ? '<button type="button" class="booker-wt-skip" data-close-walkthrough>Skip for now</button>' : ''}
-        </form>
+        <div class="tutorial-bar"><span style="width:${pct}%"></span></div>
+        <h4>${escapeHtml(step.title)}</h4>
+        <p>${escapeHtml(step.body)}</p>
+        ${step.proof ? renderBookerWalkthroughProof() : ''}
+        <div class="tutorial-nav">
+          ${showBack ? '<button type="button" class="btn btn-ghost tutorial-btn" data-tutorial-back>Back</button>' : '<span></span>'}
+          ${advance}
+        </div>
       </div>
     </div>
   `;
 }
 
-function attachWalkthroughSwipe(state) {
-  const area = state.root.querySelector('[data-walkthrough-panels]');
-  const form = state.root.querySelector('[data-walkthrough-form]');
-  if (!area || !form) return;
-  let startX = 0;
-  let startY = 0;
-  area.addEventListener('touchstart', event => {
-    const touch = event.changedTouches[0];
-    startX = touch.clientX;
-    startY = touch.clientY;
-  }, { passive: true });
-  area.addEventListener('touchend', event => {
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - startX;
-    const dy = touch.clientY - startY;
-    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return;
-    const current = getStepIndex(form);
-    setStepFormIndex(form, dx < 0 ? current + 1 : current - 1, { validate: false });
-  }, { passive: true });
+function positionTutorialCoach(state, doScroll = false) {
+  if (!state.tutorial) return;
+  const step = TUTORIAL_STEPS[state.tutorialStep];
+  if (!step) return;
+  const overlay = state.root.querySelector('.tutorial-overlay');
+  const callout = state.root.querySelector('[data-tutorial-callout]');
+  const spotlight = state.root.querySelector('[data-tutorial-spotlight]');
+  if (!overlay || !callout) return;
+  const el = step.anchor ? state.root.querySelector(step.anchor) : null;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+  const margin = 8;
+  if (step.float) {
+    // Non-blocking summary tooltip pinned at the top — the booker interacts
+    // with the modal below it.
+    overlay.classList.remove('is-centered');
+    if (spotlight) spotlight.style.display = 'none';
+    callout.style.position = 'fixed';
+    callout.style.transform = 'none';
+    const cw = callout.getBoundingClientRect().width || Math.min(280, viewportW - 24);
+    callout.style.left = `${Math.max(margin, (viewportW - cw) / 2)}px`;
+    callout.style.top = `calc(${margin}px + env(safe-area-inset-top))`;
+    return;
+  }
+  if (!el) {
+    // Intentionally anchorless steps dim + block the screen; an anchored step
+    // whose target is momentarily absent (e.g. inside the surrender modal mid-
+    // navigation) must keep the background tappable so the booker can finish.
+    overlay.classList.toggle('is-centered', !step.anchor);
+    if (spotlight) spotlight.style.display = 'none';
+    callout.style.position = 'fixed';
+    callout.style.left = '50%';
+    callout.style.top = '50%';
+    callout.style.transform = 'translate(-50%, -50%)';
+    return;
+  }
+  overlay.classList.remove('is-centered');
+  if (doScroll) {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+  const r = el.getBoundingClientRect();
+  const pad = 6;
+  if (spotlight) {
+    spotlight.style.display = 'block';
+    spotlight.style.top = `${r.top - pad}px`;
+    spotlight.style.left = `${r.left - pad}px`;
+    spotlight.style.width = `${r.width + pad * 2}px`;
+    spotlight.style.height = `${r.height + pad * 2}px`;
+  }
+  // Place callout above the anchor if there's room, else below; clamp to viewport.
+  callout.style.transform = 'none';
+  callout.style.position = 'fixed';
+  const calloutRect = callout.getBoundingClientRect();
+  const calloutH = calloutRect.height || 160;
+  const calloutW = calloutRect.width || Math.min(300, viewportW - 32);
+  const spaceAbove = r.top;
+  const spaceBelow = viewportH - r.bottom;
+  let top;
+  if (spaceBelow >= calloutH + pad + margin || spaceBelow >= spaceAbove) {
+    top = r.bottom + pad;
+  } else {
+    top = r.top - pad - calloutH;
+  }
+  top = Math.max(margin, Math.min(top, viewportH - calloutH - margin));
+  let left = r.left + r.width / 2 - calloutW / 2;
+  left = Math.max(margin, Math.min(left, viewportW - calloutW - margin));
+  callout.style.top = `${top}px`;
+  callout.style.left = `${left}px`;
 }
 
 function renderSurrenderModal(state) {
@@ -2802,7 +3012,9 @@ function renderSurrenderModal(state) {
               <h4>Account Login</h4>
               <div class="booker-surrender-target">
                 <span class="field-label">Bind to this email</span>
-                <span class="field-main wrap">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                <div class="gmail-dot-item available">
+                  <span class="gmail-dot-email">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                </div>
                 <input type="hidden" name="generatedEmail" value="${escapeAttr(generatedEmail)}" />
                 <div class="toolbar">
                   <button type="button" class="btn btn-secondary btn-sm" data-regenerate-surrender="${escapeAttr(card.id)}" ${generatedOptions.length > 1 ? '' : 'disabled'}>${icon('rotate')}<span>New email</span></button>
@@ -2812,7 +3024,11 @@ function renderSurrenderModal(state) {
               </div>
               <div class="form-group">
                 <label class="form-label">Password *</label>
-                <input class="form-input" name="accountPassword" type="password" autocomplete="current-password" required data-step-autoadvance />
+                <div class="booker-pw-group">
+                  <input class="form-input" name="accountPassword" type="password" autocomplete="current-password" required data-step-autoadvance />
+                  <button type="button" class="booker-pw-icon" data-toggle-password title="Show password">${icon('eye')}</button>
+                  <span class="booker-pw-icon booker-pw-enter" title="Enter to continue">${icon('corner-down-left')}</span>
+                </div>
               </div>
             </div>
           </section>
@@ -2838,7 +3054,6 @@ function renderSurrenderModal(state) {
           <div class="fulfillment-step-footer">
             ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
             <span class="fulfillment-step-count" data-step-count>Step 1 of 2</span>
-            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
             <button type="submit" class="btn btn-primary btn-full" ${generatedEmail ? '' : 'disabled'}>Submit Surrender</button>
           </div>
         </form>
@@ -2850,7 +3065,24 @@ function renderSurrenderModal(state) {
 async function handleBookerClick(event, state) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (handleStepClick(event, target)) return;
+  if (handleStepClick(event, target)) {
+    if (state.tutorial) positionTutorialCoach(state);
+    return;
+  }
+  if (target.closest('[data-toggle-password]')) {
+    const group = target.closest('.booker-pw-group');
+    const input = group?.querySelector('input');
+    if (input) {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const btn = group.querySelector('[data-toggle-password]');
+      if (btn) {
+        btn.innerHTML = icon(show ? 'eye-off' : 'eye');
+        btn.title = show ? 'Hide password' : 'Show password';
+      }
+    }
+    return;
+  }
   if (target.closest('[data-booker-refresh]')) {
     await loadBookerSession(state);
     return;
@@ -2916,12 +3148,22 @@ async function handleBookerClick(event, state) {
     return;
   }
   if (target.closest('[data-open-walkthrough]')) {
-    state.walkthroughOpen = true;
+    startBookerTutorial(state);
+    return;
+  }
+  if (target.closest('[data-tutorial-next]')) {
+    state.tutorialStep += 1;
+    state.tutorialMaxStep = Math.max(state.tutorialMaxStep, state.tutorialStep);
     renderBooker(state);
     return;
   }
-  if (target.closest('[data-close-walkthrough]')) {
-    closeBookerWalkthrough(state);
+  if (target.closest('[data-tutorial-back]')) {
+    state.tutorialStep = Math.max(0, state.tutorialStep - 1);
+    renderBooker(state);
+    return;
+  }
+  if (target.closest('[data-tutorial-exit]')) {
+    endBookerTutorial(state);
     return;
   }
   if (target.closest('[data-close-surrender]')) {
@@ -2936,7 +3178,7 @@ async function handleBookerClick(event, state) {
   }
   const getCodeButton = target.closest('button[data-get-code]');
   if (getCodeButton) {
-    await getSurrenderCode(getCodeButton);
+    await getSurrenderCode(getCodeButton, state);
     return;
   }
   const claimId = target.closest('[data-claim-card]')?.getAttribute('data-claim-card');
@@ -2956,6 +3198,10 @@ async function retireSurrenderEmail(state, cardId) {
   const email = String(state.root.querySelector('[name=generatedEmail]')?.value || '').trim().toLowerCase();
   if (!card || !email || !state.boardId) return;
   state.retiredEmails.add(email);
+  if (isSimMode(state)) {
+    renderBooker(state);
+    return;
+  }
   renderBooker(state);
   try {
     await setDoc(doc(retiredEmailsRef(state.boardId)), {
@@ -2970,11 +3216,22 @@ async function retireSurrenderEmail(state, cardId) {
   }
 }
 
-async function getSurrenderCode(button) {
+async function getSurrenderCode(button, state) {
   const form = button.closest('[data-surrender-form]');
   const resultEl = form?.querySelector('[data-code-result]');
   const generatedEmail = form ? String(new FormData(form).get('generatedEmail') || '').trim().toLowerCase() : '';
   if (!generatedEmail || !resultEl) return;
+
+  if (isSimMode(state)) {
+    const code = '481920';
+    resultEl.hidden = false;
+    resultEl.innerHTML = `
+      <span class="field-main mono">${escapeHtml(code)}</span>
+      <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(code)}">${icon('copy')}<span>Copy</span></button>
+    `;
+    if (state.tutorial) positionTutorialCoach(state);
+    return;
+  }
 
   button.disabled = true;
   resultEl.hidden = false;
@@ -3041,11 +3298,6 @@ async function handleBookerSubmit(event, state) {
     }
     return;
   }
-  if (event.target.matches('[data-walkthrough-form]')) {
-    event.preventDefault();
-    closeBookerWalkthrough(state);
-    return;
-  }
   const surrenderCardId = event.target.getAttribute('data-surrender-form');
   if (surrenderCardId) {
     event.preventDefault();
@@ -3054,17 +3306,23 @@ async function handleBookerSubmit(event, state) {
   }
 }
 
-function closeBookerWalkthrough(state) {
-  markWalkthroughSeen(state.bookerName);
-  state.walkthroughOpen = false;
-  renderBooker(state);
-}
-
 async function claimBookerCard(state, cardId) {
   if (!state.bookerName) return;
   const activeCard = getActiveBookerCard(state, cardId);
   if (activeCard) {
     showToast('Surrender your current CO before claiming another.', 'error');
+    return;
+  }
+  if (isSimMode(state)) {
+    const card = state.cards.find(item => item.id === cardId);
+    if (!card) return;
+    card.status = 'claimed';
+    card.bookerName = state.bookerName;
+    card.claimedAt = { toMillis: () => Date.now() };
+    state.activeTab = 'active';
+    state.expandedCardIds = new Set([cardId]);
+    state.expandedCheckoutIds.clear();
+    renderBooker(state);
     return;
   }
   try {
@@ -3118,13 +3376,14 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     const reason = await showPrompt('Why can this checkout not be fulfilled?', {
       label: 'Reason',
       placeholder: 'Add the reason for the owner...',
+      initial: isSimMode(state) ? 'Discount not applicable' : '',
       required: true,
       multiline: true
     });
     if (reason === null) return;
     cannotFulfillReason = reason;
   }
-  if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
+  if (isSimMode(state)) {
     const card = state.cards.find(item => item.id === cardId);
     const checkout = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
     if (!card || !checkout) return;
@@ -3138,6 +3397,8 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     if (!cannotFulfill) checkout.refund = refund;
     const checkouts = state.checkoutsByCard.get(cardId) || [];
     card.status = checkouts.length && checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status)) ? 'ready_to_surrender' : 'fulfilling';
+    const nextCo = checkouts.find(item => !['fulfilled', 'cannot_fulfill', 'approved'].includes(item.status));
+    state.expandedCheckoutIds = new Set(nextCo ? [checkoutExpansionKey(cardId, nextCo.id)] : []);
     renderBooker(state);
     showToast('Checkout saved', 'success');
     return;
@@ -3179,7 +3440,7 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
 
 async function unfulfillBookerCheckout(state, cardId, checkoutId) {
   if (!cardId || !checkoutId) return;
-  if (IS_LOCAL_DEV_HOST && SEARCH_PARAMS.has('mock')) {
+  if (isSimMode(state)) {
     const card = state.cards.find(item => item.id === cardId);
     const checkout = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
     if (!card || !checkout) return;
@@ -3247,6 +3508,27 @@ async function surrenderBookerCard(state, cardId, form) {
   const expiryHoursLeft = numberValue(data.get('expiryHoursLeft'), 0);
   const expiresAt = expiryHoursLeft > 0 ? new Date(Date.now() + expiryHoursLeft * 3600000).toISOString() : '';
   if (!generatedEmail || !accountPassword || !expiresAt) return;
+
+  if (isSimMode(state)) {
+    const card = state.cards.find(item => item.id === cardId);
+    if (!card) return;
+    const checkouts = state.checkoutsByCard.get(cardId) || [];
+    if (!checkouts.length || !checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status))) {
+      showToast('Decide every checkout before surrendering the account.', 'error');
+      return;
+    }
+    card.status = 'surrendered';
+    card.accountEmail = generatedEmail;
+    card.accountPassword = accountPassword;
+    card.vouchers = vouchers;
+    card.generatedEmail = generatedEmail;
+    card.surrenderedEmail = generatedEmail;
+    card.expiresAt = expiresAt;
+    card.surrenderedAt = { toMillis: () => Date.now() };
+    state.surrenderCardId = '';
+    renderBooker(state);
+    return;
+  }
 
   const checkoutSnap = await getDocs(checkoutsRef(state.boardId, cardId));
   const checkoutRefs = checkoutSnap.docs.map(docSnap => checkoutRef(state.boardId, cardId, docSnap.id));
