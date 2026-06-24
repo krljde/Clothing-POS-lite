@@ -40,6 +40,10 @@ export default {
       return handleCode(request, env, url)
     }
 
+    if (request.method === 'GET' && url.pathname === '/preview') {
+      return handlePreview(request, env, url)
+    }
+
     return json({ error: 'Not found' }, request, env, 404)
   },
 }
@@ -66,6 +70,100 @@ async function handleCode(request: Request, env: Env, url: URL): Promise<Respons
 
   const result = await fetchLatestCode(env, address)
   return json(result, request, env)
+}
+
+async function handlePreview(request: Request, env: Env, url: URL): Promise<Response> {
+  const auth = request.headers.get('Authorization') || ''
+  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : ''
+  if (!token) return json({ error: 'Unauthorized' }, request, env, 401)
+
+  let uid = ''
+  try {
+    const payload = await verifyFirebaseIdToken(token, env)
+    uid = payload.uid
+  } catch {
+    return json({ error: 'Unauthorized' }, request, env, 401)
+  }
+
+  const target = String(url.searchParams.get('url') || '').trim()
+  if (!isAllowedSheinUrl(target)) return json({ error: 'URL is not allowed' }, request, env, 400)
+
+  // Serve from cache when we've unfurled this exact link before.
+  const cacheKey = `preview:${await sha256Hex(target)}`
+  const cached = await env.CACHE_KV.get(cacheKey)
+  if (cached) return new Response(cached, { headers: { ...corsHeaders(request, env), 'Content-Type': 'application/json' } })
+
+  if (!(await takeRateLimit(env, uid))) return json({ error: 'Too many requests' }, request, env, 429)
+
+  const preview = await fetchLinkPreview(target)
+  const body = JSON.stringify(preview)
+  await env.CACHE_KV.put(cacheKey, body, { expirationTtl: 604800 })
+  return new Response(body, { headers: { ...corsHeaders(request, env), 'Content-Type': 'application/json' } })
+}
+
+function isAllowedSheinUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
+    const host = parsed.hostname.toLowerCase()
+    return host === 'shein.com' || host.endsWith('.shein.com')
+  } catch {
+    return false
+  }
+}
+
+async function fetchLinkPreview(target: string): Promise<{ image: string; title: string }> {
+  try {
+    const res = await fetch(target, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'facebookexternalhit/1.1 (+https://krljde.github.io)',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+    })
+    if (!res.ok) return { image: '', title: '' }
+    const html = await res.text()
+    const rawImage = metaContent(html, 'og:image') || metaContent(html, 'twitter:image')
+    const title = metaContent(html, 'og:title') || metaContent(html, 'twitter:title')
+    let image = ''
+    if (rawImage) {
+      try { image = new URL(rawImage, res.url || target).toString() } catch { image = '' }
+    }
+    return { image, title: decodeEntities(title) }
+  } catch {
+    return { image: '', title: '' }
+  }
+}
+
+// Pull a meta tag's content for og:/twitter: keys, regardless of attribute order.
+function metaContent(html: string, key: string): string {
+  const head = html.slice(0, 200000)
+  const attr = `(?:property|name)\\s*=\\s*["']${key.replace(':', '\\:')}["']`
+  const patterns = [
+    new RegExp(`<meta[^>]+${attr}[^>]+content\\s*=\\s*["']([^"']*)["']`, 'i'),
+    new RegExp(`<meta[^>]+content\\s*=\\s*["']([^"']*)["'][^>]+${attr}`, 'i'),
+  ]
+  for (const re of patterns) {
+    const match = head.match(re)
+    if (match && match[1]) return match[1].trim()
+  }
+  return ''
+}
+
+function decodeEntities(value: string): string {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function takeRateLimit(env: Env, uid: string): Promise<boolean> {
