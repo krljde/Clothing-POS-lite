@@ -2869,9 +2869,9 @@ function maybeTutorialAutoSurrender(state) {
           const submit = form.querySelector('[type="submit"]');
           if (submit) submit.click();
         }
-      }, 400);
+      }, 600);
     }
-  }, 50);
+  }, 120);
 }
 
 function renderTutorialCoach(state) {
