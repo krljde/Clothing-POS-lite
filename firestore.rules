@@ -236,6 +236,7 @@ service cloud.firestore {
                 'unavailableItems',
                 'cannotFulfillReason',
                 'refund',
+                'actualCost',
                 'fulfilledAt',
                 'failedAt',
                 'updatedAt'

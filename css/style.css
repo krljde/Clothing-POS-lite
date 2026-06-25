@@ -1664,7 +1664,8 @@ body.booker-route {
 }
 .booker-detail-grid .span-2 { grid-column: 1 / -1; }
 .booker-cart-actions,
-.booker-refund-inline {
+.booker-refund-inline,
+.booker-cost-inline {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1793,14 +1794,17 @@ body.booker-route {
 .booker-decision-actions .btn {
   flex: 1 1 140px;
 }
-.booker-refund-inline {
+.booker-refund-inline,
+.booker-cost-inline {
   flex: 0 0 auto;
 }
-.booker-refund-inline .form-label {
+.booker-refund-inline .form-label,
+.booker-cost-inline .form-label {
   margin: 0;
   white-space: nowrap;
 }
-.booker-refund-inline .form-input {
+.booker-refund-inline .form-input,
+.booker-cost-inline .form-input {
   width: 7rem;
 }
 .booker-surrender-form {

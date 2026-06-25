@@ -101,6 +101,12 @@ const TUTORIAL_STEPS = [
     next: true
   },
   {
+    anchor: '[data-checkout-cost]',
+    title: 'Actual cost',
+    body: 'Enter the exact amount you paid on SHEIN for this CO. This is required — it pre-fills the owner’s review.',
+    next: true
+  },
+  {
     anchor: '[data-checkout-refund]',
     title: 'Refund',
     body: 'If this CO used the Cancel Method, type how much refund here. Otherwise leave it 0.',
@@ -1074,7 +1080,7 @@ function renderReviewInputs(checkout) {
       </div>
       <div class="form-group">
         <label class="form-label">Checkout Cost *</label>
-        <input class="form-input" data-review-discounted type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.expectedTotal || '')}" required />
+        <input class="form-input" data-review-discounted type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(checkout.actualCost || checkout.expectedTotal || '')}" required />
       </div>
       <div class="form-group">
         <label class="form-label">Refund</label>
@@ -2364,7 +2370,7 @@ function applyMockOwnerState(owner) {
   add(normalizeCard('o2', { status: 'open', createdAt: at(now - 9e5) }),
     [mockCheckout('o2a', 'Carla Reyes', '57%', 2300, 'open')]);
   add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountPassword: 'Sh3in!co3pass', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
-    [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled', { refund: 125 }), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
+    [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled', { refund: 125, actualCost: 1375 }), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
   add(normalizeCard('o4', { status: 'approved', bookerName: 'Liza Reyes', accountEmail: 'lizaco4@gmail.com', accountPassword: 'L1za!co4pass', accountCost: 190, createdAt: at(now - 9e7) }),
     [mockCheckout('o4a', 'Joy Ho', '83%', 1450, 'approved')]);
   owner.cards = cards;
@@ -2901,7 +2907,7 @@ function renderBookerCheckout(state, card, checkout, ours) {
           ${checkout.notes ? `<p class="booker-note">${escapeHtml(checkout.notes)}</p>` : ''}
           ${checkout.status === 'fulfilled' ? '<p class="booker-done">Fulfilled. Send the order-status screenshot to Messenger.</p>' : ''}
           ${checkout.status === 'cannot_fulfill' ? `<p class="booker-lock">Cannot fulfill: ${escapeHtml(checkout.cannotFulfillReason || 'No reason saved')}</p>` : ''}
-          ${canDecide ? renderCheckoutActionButtons(card, checkout) : ''}
+          ${canDecide ? renderCheckoutActionButtons(state, card, checkout) : ''}
           ${canReopen ? `<button type="button" class="btn btn-secondary btn-sm" data-unfulfill-checkout data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">${icon('rotate')}<span>${reopenLabel}</span></button>` : ''}
         </div>
       ` : ''}
@@ -2922,13 +2928,28 @@ function renderBookerCopyField(label, value, fallback, copyLabel, extraClass = '
   `;
 }
 
-function renderCheckoutActionButtons(card, checkout) {
+function renderCheckoutActionButtons(state, card, checkout) {
   return `
-    <p class="booker-task-hint">Order this on SHEIN with the voucher, then mark it:</p>
+    <p class="booker-task-hint">Order this on SHEIN with the voucher, enter the actual amount you paid, then mark it:</p>
     <div class="booker-decision-actions">
+      ${renderBookerActualCostInput(state, card, checkout)}
       ${renderBookerRefundInput(card, checkout)}
       <button type="button" class="btn btn-primary" data-mark-checkout="fulfilled" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Mark as ordered</button>
       <button type="button" class="btn btn-danger" data-mark-checkout="cannot_fulfill" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Can't order this</button>
+    </div>
+  `;
+}
+
+function renderBookerActualCostInput(state, card, checkout) {
+  // Pre-fill the prior cost on reopen (un-fulfill → re-mark) so it isn't re-typed;
+  // seed a value in sim mode so the tutorial's Mark-ordered step isn't blocked;
+  // otherwise start empty to force a real entry.
+  const stored = numberValue(checkout.actualCost, 0);
+  const value = stored > 0 ? stored : (isSimMode(state) ? (checkout.expectedTotal || '') : '');
+  return `
+    <div class="booker-cost-inline">
+      <label class="form-label">Actual Cost (₱) *</label>
+      <input class="form-input" data-checkout-cost data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}" type="number" inputmode="decimal" min="0" step="0.01" value="${escapeAttr(value)}" required />
     </div>
   `;
 }
@@ -3572,6 +3593,16 @@ async function claimBookerCard(state, cardId) {
 async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
   if (!cardId || !checkoutId || !['fulfilled', 'cannot_fulfill'].includes(decision)) return;
   const cannotFulfill = decision === 'cannot_fulfill';
+  // Actual cost is required to mark a checkout ordered (it pre-fills the owner's review).
+  let actualCost = 0;
+  if (!cannotFulfill) {
+    actualCost = getBookerCheckoutActualCostValue(state, cardId, checkoutId);
+    if (!(actualCost > 0)) {
+      showToast('Enter the actual cost you paid before marking this ordered.', 'error');
+      getBookerCheckoutActualCostInput(state, cardId, checkoutId)?.focus();
+      return;
+    }
+  }
   const refund = cannotFulfill ? 0 : getBookerCheckoutRefundValue(state, cardId, checkoutId);
   let cannotFulfillReason = '';
   if (cannotFulfill) {
@@ -3596,7 +3627,7 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     checkout.cannotFulfillReason = cannotFulfill ? cannotFulfillReason : '';
     checkout.fulfilledAt = cannotFulfill ? null : { toMillis: () => Date.now() };
     checkout.failedAt = cannotFulfill ? { toMillis: () => Date.now() } : null;
-    if (!cannotFulfill) checkout.refund = refund;
+    if (!cannotFulfill) { checkout.refund = refund; checkout.actualCost = actualCost; }
     const checkouts = state.checkoutsByCard.get(cardId) || [];
     card.status = checkouts.length && checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status)) ? 'ready_to_surrender' : 'fulfilling';
     const nextCo = checkouts.find(item => !['fulfilled', 'cannot_fulfill', 'approved'].includes(item.status));
@@ -3626,7 +3657,7 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
         failedAt: cannotFulfill ? serverTimestamp() : null,
         updatedAt: serverTimestamp()
       };
-      if (!cannotFulfill) updates.refund = refund;
+      if (!cannotFulfill) { updates.refund = refund; updates.actualCost = actualCost; }
       transaction.update(coRef, updates);
       transaction.update(cRef, {
         status: 'fulfilling',
@@ -3688,6 +3719,14 @@ async function unfulfillBookerCheckout(state, cardId, checkoutId) {
 function getBookerCheckoutRefundValue(state, cardId, checkoutId) {
   const input = state.root.querySelector(`[data-checkout-refund][data-card-id="${cssEscape(cardId)}"][data-checkout-id="${cssEscape(checkoutId)}"]`);
   return numberValue(input?.value, 0);
+}
+
+function getBookerCheckoutActualCostInput(state, cardId, checkoutId) {
+  return state.root.querySelector(`[data-checkout-cost][data-card-id="${cssEscape(cardId)}"][data-checkout-id="${cssEscape(checkoutId)}"]`);
+}
+
+function getBookerCheckoutActualCostValue(state, cardId, checkoutId) {
+  return numberValue(getBookerCheckoutActualCostInput(state, cardId, checkoutId)?.value, 0);
 }
 
 async function refreshCardReadyState(state, cardId) {
@@ -3848,7 +3887,8 @@ function normalizeCheckout(id, data = {}) {
     cannotFulfillReason: data.cannotFulfillReason || '',
     unavailableItems: Array.isArray(data.unavailableItems) ? data.unavailableItems : [],
     ...data,
-    refund: numberValue(data.refund, 0)
+    refund: numberValue(data.refund, 0),
+    actualCost: numberValue(data.actualCost, 0)
   };
 }
 
