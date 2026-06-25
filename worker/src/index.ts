@@ -180,12 +180,11 @@ async function takeRateLimit(env: Env, uid: string): Promise<boolean> {
 async function fetchLatestCode(env: Env, address: string): Promise<{ code: string | null; subject?: string; from?: string; receivedAt?: string }> {
   const accessToken = await getBaseAccessToken(env)
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  // Only return a fresh code, returning the newest within the window so it's never a
-  // stale one from an earlier binding to the same dot variant. Restrict to SHEIN's
-  // transactional sender (screenshots confirm every code comes from
-  // noreply@sheinnotice.com). Gmail's `newer_than:` is day/month-only, so bound the
-  // query with an epoch `after:` and enforce the exact window via internalDate.
-  // NOTE: widened to 12h for live testing — tighten back to 5 * 60 * 1000 once verified.
+  // Return the newest code within a 12h window so it's never a stale one from an
+  // earlier binding to the same dot variant. Restrict to SHEIN's transactional sender
+  // (screenshots confirm every code comes from noreply@sheinnotice.com). Gmail's
+  // `newer_than:` is day/month-only, so bound the query with an epoch `after:` and
+  // enforce the exact window via internalDate.
   const WINDOW_MS = 12 * 60 * 60 * 1000
   const cutoffSec = Math.floor((Date.now() - WINDOW_MS) / 1000)
   listUrl.searchParams.set('q', `from:sheinnotice.com after:${cutoffSec}`)
