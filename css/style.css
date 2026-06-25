@@ -1701,6 +1701,45 @@ body.booker-route {
 .booker-pw-icon .ui-icon { width: 18px; height: 18px; }
 .booker-pw-enter { right: 32px; cursor: default; opacity: .5; }
 .booker-pw-enter:hover { color: var(--text-3); }
+.booker-pending-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+.booker-pending-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.booker-pending-chips .voucher-chip {
+  gap: 4px;
+}
+.voucher-chip.is-ready {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.voucher-chip.is-waiting {
+  background: var(--surface);
+  color: var(--text-2);
+}
+.booker-pending-chip-mark {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+}
+.booker-pending-chip-mark .ui-icon {
+  width: 13px;
+  height: 13px;
+}
+.booker-pending-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
 .booker-cart-preview {
   display: flex;
   flex-direction: column;

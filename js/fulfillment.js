@@ -1482,10 +1482,36 @@ function subscribePendingCheckouts(owner) {
     owner.pendingCheckouts = snap.docs.map(d => normalizePendingCheckout(d.id, d.data()));
     renderOwner(owner);
     await checkAndAutoGroup(owner);
+    await syncPendingSummary(owner);
   }, err => {
     console.warn('pending checkout snapshot error:', err);
     showToast('Pending queue sync stopped — refresh to reconnect.', 'error');
   });
+}
+
+/* Mirror an aggregate of ungrouped pending checkouts onto the board doc so bookers
+   (who can't read pendingCheckouts) can see voucher-coverage toward the next account.
+   Only writes when the summary actually changed, to avoid board write spam. */
+async function syncPendingSummary(owner) {
+  if (!owner.board) return;
+  const counts = new Map();
+  for (const pc of owner.pendingCheckouts) {
+    if (pc.status !== 'pending') continue;
+    const key = voucherKey(pc.voucher);
+    if (!key) continue;
+    const entry = counts.get(key) || { voucher: pc.voucher, count: 0 };
+    entry.count += 1;
+    counts.set(key, entry);
+  }
+  const next = Array.from(counts.values());
+  const prev = Array.isArray(owner.board.pendingSummary) ? owner.board.pendingSummary : [];
+  if (JSON.stringify(prev) === JSON.stringify(next)) return;
+  owner.board.pendingSummary = next;
+  try {
+    await updateDoc(boardRef(owner.board.id), { pendingSummary: next, updatedAt: serverTimestamp() });
+  } catch (err) {
+    console.warn('pending summary sync failed:', err);
+  }
 }
 
 function selectPendingBatch(pendingCheckouts, targetVouchers) {
@@ -2285,7 +2311,9 @@ function applyMockBookerState(state) {
   const scenario = SEARCH_PARAMS.get('mock') || 'browse';
   state.bookerName = 'Maria Santos';
   state.boardId = 'mock-board';
-  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'] });
+  // pendingSummary mirrors the owner mock queue: p1=70% pending, p2=60% pending,
+  // p3=79% FAILED (excluded) — so 79% reads as "waiting" until the owner re-activates it.
+  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'], targetVouchers: ['60%', '70%', '79%'], pendingSummary: [{ voucher: '70%', count: 1 }, { voucher: '60%', count: 1 }] });
   state.accessStatus = 'ready';
   state.loading = false;
   const cards = [];
@@ -2506,9 +2534,25 @@ function subscribeBookerBoard(state) {
     cardSnap => { handleSnapshot('mine', cardSnap); },
     handleError
   );
+  // Live board doc so the pending-coverage indicator updates without a manual refresh.
+  // Always refresh state.board, but only re-render when the indicator is actually
+  // visible — re-rendering mid-task (e.g. typing a refund on the Active tab, or during
+  // the tutorial) would rebuild the form and wipe in-progress input.
+  const boardDocUnsub = onSnapshot(
+    boardRef(state.boardId),
+    snap => {
+      if (!snap.exists()) return;
+      state.board = normalizeBoard(snap.id, snap.data());
+      if (!state.loading && !state.surrenderCardId && !state.tutorial && state.activeTab === 'unclaimed') {
+        renderBooker(state);
+      }
+    },
+    handleError
+  );
   state.boardUnsub = () => {
     unclaimedUnsub();
     mineUnsub();
+    boardDocUnsub();
   };
 }
 
@@ -2595,8 +2639,49 @@ function renderBookerTabContent(state, unclaimedCards, activeCards) {
   }
   if (state.activeTab === 'stats') return renderBookerStats(state);
   return `
+    ${renderBookerPendingIndicator(state)}
     <section class="booker-card-list">
       ${unclaimedCards.length ? unclaimedCards.map(card => renderBookerCard(state, card)).join('') : '<section class="booker-card"><p class="empty-note">No unclaimed CO right now.</p></section>'}
+    </section>
+  `;
+}
+
+/* Coverage indicator: shows how many ungrouped orders are queued and which combo
+   vouchers are still missing before the next claimable account can be formed.
+   Reads only the board doc (targetVouchers + pendingSummary) — no customer data. */
+function renderBookerPendingIndicator(state) {
+  const combo = Array.isArray(state.board?.targetVouchers) ? state.board.targetVouchers : [];
+  const summary = Array.isArray(state.board?.pendingSummary) ? state.board.pendingSummary : [];
+  const totalQueued = summary.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+  if (!combo.length || totalQueued <= 0) return '';
+
+  const available = new Map();
+  summary.forEach(item => { available.set(voucherKey(item.voucher), Number(item.count) || 0); });
+  const needed = new Map();
+  combo.forEach(voucher => { needed.set(voucherKey(voucher), (needed.get(voucherKey(voucher)) || 0) + 1); });
+
+  const slots = uniqueByVoucherKey(combo).map(voucher => {
+    const key = voucherKey(voucher);
+    const ready = (available.get(key) || 0) >= (needed.get(key) || 1);
+    return { voucher, ready };
+  });
+  const waiting = slots.filter(slot => !slot.ready).map(slot => slot.voucher);
+  const summaryLine = waiting.length
+    ? `${totalQueued} order${totalQueued === 1 ? '' : 's'} queued · waiting on ${waiting.join(', ')}`
+    : `${totalQueued} order${totalQueued === 1 ? '' : 's'} queued · combo ready to group`;
+
+  return `
+    <section class="booker-pending-indicator">
+      <span class="page-kicker">Coming up — next account combo</span>
+      <div class="booker-pending-chips" aria-label="Voucher coverage">
+        ${slots.map(slot => `
+          <span class="voucher-chip ${slot.ready ? 'is-ready' : 'is-waiting'}">
+            <span class="booker-pending-chip-mark" aria-hidden="true">${slot.ready ? icon('check') : '⏳'}</span>
+            ${escapeHtml(slot.voucher)}
+          </span>
+        `).join('')}
+      </div>
+      <p class="booker-pending-summary">${escapeHtml(summaryLine)}</p>
     </section>
   `;
 }
@@ -3699,6 +3784,7 @@ function normalizeBoard(id, data = {}) {
     id,
     gmailBase: data.gmailBase || '',
     targetVouchers: Array.isArray(data.targetVouchers) ? data.targetVouchers : [],
+    pendingSummary: Array.isArray(data.pendingSummary) ? data.pendingSummary : [],
     ...data,
     usedEmails: Array.isArray(data.usedEmails) ? data.usedEmails : []
   };
