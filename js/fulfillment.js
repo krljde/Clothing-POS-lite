@@ -2311,7 +2311,9 @@ function applyMockBookerState(state) {
   const scenario = SEARCH_PARAMS.get('mock') || 'browse';
   state.bookerName = 'Maria Santos';
   state.boardId = 'mock-board';
-  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'], targetVouchers: ['60%', '70%', '79%'], pendingSummary: [{ voucher: '60%', count: 2 }, { voucher: '70%', count: 1 }] });
+  // pendingSummary mirrors the owner mock queue: p1=70% pending, p2=60% pending,
+  // p3=79% FAILED (excluded) — so 79% reads as "waiting" until the owner re-activates it.
+  state.board = normalizeBoard('mock-board', { active: true, gmailBase: 'shopmain@gmail.com', usedEmails: ['shopmain@gmail.com'], targetVouchers: ['60%', '70%', '79%'], pendingSummary: [{ voucher: '70%', count: 1 }, { voucher: '60%', count: 1 }] });
   state.accessStatus = 'ready';
   state.loading = false;
   const cards = [];
@@ -2533,12 +2535,17 @@ function subscribeBookerBoard(state) {
     handleError
   );
   // Live board doc so the pending-coverage indicator updates without a manual refresh.
+  // Always refresh state.board, but only re-render when the indicator is actually
+  // visible — re-rendering mid-task (e.g. typing a refund on the Active tab, or during
+  // the tutorial) would rebuild the form and wipe in-progress input.
   const boardDocUnsub = onSnapshot(
     boardRef(state.boardId),
     snap => {
       if (!snap.exists()) return;
       state.board = normalizeBoard(snap.id, snap.data());
-      if (!state.loading && !state.surrenderCardId) renderBooker(state);
+      if (!state.loading && !state.surrenderCardId && !state.tutorial && state.activeTab === 'unclaimed') {
+        renderBooker(state);
+      }
     },
     handleError
   );
