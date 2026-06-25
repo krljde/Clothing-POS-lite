@@ -3553,8 +3553,28 @@ async function getSurrenderCode(button, state) {
     resultEl.textContent = 'Could not fetch code. Try again.';
     showToast('Could not fetch code. Try again.', 'error');
   } finally {
-    button.disabled = false;
+    startGetCodeCooldown(button);
   }
+}
+
+// 15s cooldown after each request so bookers don't hammer the worker before the
+// SHEIN email has time to land; the button shows a live countdown while disabled.
+function startGetCodeCooldown(button, seconds = 15) {
+  const label = button.querySelector('span');
+  const original = (label && label.textContent) || 'Get code';
+  button.disabled = true;
+  let remaining = seconds;
+  if (label) label.textContent = `Wait ${remaining}s`;
+  const timer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(timer);
+      button.disabled = false;
+      if (label) label.textContent = original;
+    } else if (label) {
+      label.textContent = `Wait ${remaining}s`;
+    }
+  }, 1000);
 }
 
 function toggleSingleExpanded(set, id) {

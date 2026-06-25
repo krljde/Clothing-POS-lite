@@ -180,8 +180,16 @@ async function takeRateLimit(env: Env, uid: string): Promise<boolean> {
 async function fetchLatestCode(env: Env, address: string): Promise<{ code: string | null; subject?: string; from?: string; receivedAt?: string }> {
   const accessToken = await getBaseAccessToken(env)
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('q', `deliveredto:${address} newer_than:1d`)
-  listUrl.searchParams.set('maxResults', '10')
+  // Only return a fresh code, returning the newest within the window so it's never a
+  // stale one from an earlier binding to the same dot variant. Restrict to SHEIN's
+  // transactional sender (screenshots confirm every code comes from
+  // noreply@sheinnotice.com). Gmail's `newer_than:` is day/month-only, so bound the
+  // query with an epoch `after:` and enforce the exact window via internalDate.
+  // NOTE: widened to 12h for live testing — tighten back to 5 * 60 * 1000 once verified.
+  const WINDOW_MS = 12 * 60 * 60 * 1000
+  const cutoffSec = Math.floor((Date.now() - WINDOW_MS) / 1000)
+  listUrl.searchParams.set('q', `from:sheinnotice.com after:${cutoffSec}`)
+  listUrl.searchParams.set('maxResults', '50')
 
   const listRes = await fetch(listUrl.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -190,13 +198,17 @@ async function fetchLatestCode(env: Env, address: string): Promise<{ code: strin
   const list = (await listRes.json()) as GmailListResponse
   const messages = list.messages ?? []
 
+  // Messages are newest-first; return the most recent one delivered to THIS exact
+  // dot variant, so concurrent bookers' codes never cross over.
   for (const { id } of messages) {
     const messageRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
     if (!messageRes.ok) throw new Error(`Gmail message fetch failed: ${messageRes.status}`)
     const message = (await messageRes.json()) as GmailMessage
-    if (!deliveredToMatches(message, address)) continue
+    // Newest-first: once we pass the 5-minute boundary, everything after is older too.
+    if (message.internalDate && Number(message.internalDate) < Date.now() - WINDOW_MS) break
+    if (!recipientMatches(message, address)) continue
     if (!fromIsShein(message)) continue
 
     const parsed = parseGmailMessage(message.payload)
@@ -214,9 +226,18 @@ async function fetchLatestCode(env: Env, address: string): Promise<{ code: strin
   return { code: null }
 }
 
+// SHEIN sends verification codes from its transactional domain (e.g.
+// noreply@sheinnotice.com). Marketing/EDM blasts come from *.sheinemail.com and
+// also contain "shein" plus stray 6-digit numbers (promo IDs), so without this
+// exclusion a recent promo shadows the real binding OTP and the booker gets a
+// code that won't bind.
 function fromIsShein(message: GmailMessage): boolean {
   const headers = message.payload.headers ?? []
-  return decodeMimeHeader(findGmailHeader(headers, 'From')).toLowerCase().includes('shein')
+  const rawFrom = findGmailHeader(headers, 'From')
+  if (!decodeMimeHeader(rawFrom).toLowerCase().includes('shein')) return false
+  const domain = (extractHeaderEmail(rawFrom).split('@')[1] || '').toLowerCase()
+  if (domain === 'sheinemail.com' || domain.endsWith('.sheinemail.com')) return false
+  return true
 }
 
 function extractSixDigitCode(bodyText: string): string {
@@ -224,11 +245,19 @@ function extractSixDigitCode(bodyText: string): string {
   return match ? match[0] : ''
 }
 
-function deliveredToMatches(message: GmailMessage, address: string): boolean {
+// Match the EXACT dot variant currently being surrendered. Gmail keeps the literal
+// recipient in Delivered-To and/or To, so check both (and every address within, for
+// multi-recipient headers) for a dot-for-dot equality against the generated email.
+function recipientMatches(message: GmailMessage, address: string): boolean {
   const headers = message.payload.headers ?? []
-  const deliveredTo = findGmailHeader(headers, 'Delivered-To') || findGmailHeader(headers, 'To')
-  if (!deliveredTo) return false
-  return extractHeaderEmail(deliveredTo) === address.toLowerCase()
+  const target = address.toLowerCase()
+  for (const name of ['Delivered-To', 'To', 'Cc']) {
+    const raw = findGmailHeader(headers, name)
+    if (!raw) continue
+    const emails: string[] = decodeMimeHeader(raw).toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g) || []
+    if (emails.includes(target)) return true
+  }
+  return false
 }
 
 function findGmailHeader(headers: GmailHeader[], name: string): string {
