@@ -709,6 +709,7 @@ function renderPendingCheckoutRow(pc) {
             <span class="ful-voucher-pill">${escapeHtml(pc.voucher)}</span>
             <strong>${escapeHtml(pc.customerName)}</strong>
             <span class="ful-pending-meta">${peso(pc.expectedTotal)} · ${pc.items.length} item${pc.items.length === 1 ? '' : 's'}</span>
+            ${pc.requeuedBy ? `<span class="ful-pending-meta">↩︎ re-queued by ${escapeHtml(pc.requeuedBy)}</span>` : ''}
           </div>
           <span class="ful-pending-row-end">
             <span class="badge ${isFailed ? 'is-cannot_fulfill' : 'is-open'}">${isFailed ? 'Failed — edit needed' : 'Pending'}</span>
@@ -1026,7 +1027,14 @@ function renderOwnerCheckout(owner, card, checkout) {
       editor = '<p class="ful-pending-edit-hint">Replace is available on active cards only.</p>';
     }
   } else if (isActiveCard) {
-    if (failed) {
+    if (failed && checkout.requeuedAt) {
+      // Already auto-returned to the queue by the booker — don't offer a manual
+      // replace (it would create a duplicate queue entry).
+      editor = `
+        <div class="ful-replace-box">
+          <p class="ful-pending-edit-hint">↩︎ Booker sent this ${escapeHtml(checkout.voucher)} back to the pending queue — it will regroup into the next combo automatically.</p>
+        </div>`;
+    } else if (failed) {
       const matches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
       editor = `
         <div class="ful-replace-box">
@@ -2849,10 +2857,13 @@ function isStaleClaim(card) {
 
 function getActiveBookerCard(state, excludeCardId = '') {
   if (!state.bookerName) return null;
+  // A card with a failed/re-queued checkout no longer blocks new claims — the
+  // booker can pick up fresh work while it waits to be surrendered.
   return state.cards.find(card => (
     card.id !== excludeCardId
     && normalizeBookerName(card.bookerName) === normalizeBookerName(state.bookerName)
     && BOOKER_ACTIVE_WORK_STATUSES.includes(card.status)
+    && !card.hasFailed
   )) || null;
 }
 
@@ -2863,7 +2874,9 @@ function isBookerOwnedCard(state, card) {
 function renderBookerCheckout(state, card, checkout, ours) {
   const canEditCard = ours && !['surrendered', 'approved'].includes(card.status);
   const canDecide = canEditCard && !['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status);
-  const canReopen = canEditCard && ['fulfilled', 'cannot_fulfill'].includes(checkout.status);
+  // A re-queued failed checkout is terminal — reopening it would orphan the copy
+  // already sent back to the owner's queue.
+  const canReopen = canEditCard && ['fulfilled', 'cannot_fulfill'].includes(checkout.status) && !checkout.requeuedAt;
   const expansionKey = checkoutExpansionKey(card.id, checkout.id);
   const expanded = state.expandedCheckoutIds.has(expansionKey);
   const reopenLabel = checkout.status === 'fulfilled' ? 'Un-fulfill' : 'Reopen';
@@ -3561,8 +3574,15 @@ async function claimBookerCard(state, cardId) {
       if (data.bookerName && normalizeBookerName(data.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account is already claimed.');
       if (lockSnap.exists()) {
         const lock = lockSnap.data();
-        if (lock.status === 'active' && lock.cardId !== cardId) {
-          throw new Error('Surrender your current CO before claiming another.');
+        if (lock.status === 'active' && lock.cardId && lock.cardId !== cardId) {
+          // Block only if the currently-locked card is still actively workable.
+          // A failed/re-queued (or surrendered) card frees the booker to claim in
+          // parallel. (Reads must precede writes — this get is still a read.)
+          const lockedSnap = await transaction.get(cardRef(state.boardId, lock.cardId));
+          const locked = lockedSnap.exists() ? lockedSnap.data() : null;
+          if (locked && BOOKER_ACTIVE_WORK_STATUSES.includes(locked.status) && !locked.hasFailed) {
+            throw new Error('Surrender your current CO before claiming another.');
+          }
         }
       }
       const timestamp = serverTimestamp();
@@ -3628,6 +3648,8 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
     checkout.fulfilledAt = cannotFulfill ? null : { toMillis: () => Date.now() };
     checkout.failedAt = cannotFulfill ? { toMillis: () => Date.now() } : null;
     if (!cannotFulfill) { checkout.refund = refund; checkout.actualCost = actualCost; }
+    // Re-queued failed checkouts are terminal (no reopen) and free the card to claim again.
+    if (cannotFulfill) { checkout.requeuedAt = { toMillis: () => Date.now() }; card.hasFailed = true; }
     const checkouts = state.checkoutsByCard.get(cardId) || [];
     card.status = checkouts.length && checkouts.every(item => ['fulfilled', 'cannot_fulfill'].includes(item.status)) ? 'ready_to_surrender' : 'fulfilling';
     const nextCo = checkouts.find(item => !['fulfilled', 'cannot_fulfill', 'approved'].includes(item.status));
@@ -3647,21 +3669,49 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
       const checkout = checkoutSnap.data();
       if (normalizeBookerName(card.bookerName) !== normalizeBookerName(state.bookerName)) throw new Error('This account belongs to another booker.');
       if (['fulfilled', 'cannot_fulfill', 'approved'].includes(checkout.status)) throw new Error('This checkout is already decided.');
+      const timestamp = serverTimestamp();
       const updates = {
         status: cannotFulfill ? 'cannot_fulfill' : 'fulfilled',
         bookerName: state.bookerName,
         canFulfill: !cannotFulfill,
         unavailableItems: [],
         cannotFulfillReason: cannotFulfill ? cannotFulfillReason : '',
-        fulfilledAt: cannotFulfill ? null : serverTimestamp(),
-        failedAt: cannotFulfill ? serverTimestamp() : null,
-        updatedAt: serverTimestamp()
+        fulfilledAt: cannotFulfill ? null : timestamp,
+        failedAt: cannotFulfill ? timestamp : null,
+        updatedAt: timestamp
       };
       if (!cannotFulfill) { updates.refund = refund; updates.actualCost = actualCost; }
+      if (cannotFulfill) {
+        // Mark terminal (no reopen) and re-queue the un-orderable checkout to the
+        // owner's pending queue so it can regroup into the next combo immediately,
+        // instead of waiting for a same-voucher manual swap.
+        updates.requeuedAt = timestamp;
+        transaction.set(doc(pendingCheckoutsRef(state.boardId)), {
+          ownerUid: state.board.ownerUid,
+          status: 'pending',
+          assignedCardId: '',
+          customerName: checkout.customerName || '',
+          customerContact: checkout.customerContact || '',
+          customerAddress: checkout.customerAddress || '',
+          voucher: checkout.voucher || '',
+          expectedTotal: checkout.expectedTotal ?? 0,
+          cartUrl: checkout.cartUrl || '',
+          cartImage: checkout.cartImage || '',
+          cartTitle: checkout.cartTitle || '',
+          items: checkout.items || [],
+          notes: checkout.notes || '',
+          cannotFulfillReason,
+          requeuedBy: state.bookerName,
+          requeuedFromCardId: cardId,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        });
+      }
       transaction.update(coRef, updates);
       transaction.update(cRef, {
         status: 'fulfilling',
-        updatedAt: serverTimestamp()
+        ...(cannotFulfill ? { hasFailed: true } : {}),
+        updatedAt: timestamp
       });
     });
     await refreshCardReadyState(state, cardId);
@@ -3673,6 +3723,11 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
 
 async function unfulfillBookerCheckout(state, cardId, checkoutId) {
   if (!cardId || !checkoutId) return;
+  const existing = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
+  if (existing?.requeuedAt) {
+    showToast('This checkout was sent back to the owner queue and can no longer be reopened.', 'error');
+    return;
+  }
   if (isSimMode(state)) {
     const card = state.cards.find(item => item.id === cardId);
     const checkout = (state.checkoutsByCard.get(cardId) || []).find(item => item.id === checkoutId);
@@ -3781,8 +3836,9 @@ async function surrenderBookerCard(state, cardId, form) {
     await runTransaction(getDb(), async transaction => {
       const ref = cardRef(state.boardId, cardId);
       const lockRef = bookerLockRef(state.boardId, state.bookerName);
-      const [snap, ...checkoutSnaps] = await Promise.all([
+      const [snap, lockSnap, ...checkoutSnaps] = await Promise.all([
         transaction.get(ref),
+        transaction.get(lockRef),
         ...checkoutRefs.map(checkoutDoc => transaction.get(checkoutDoc))
       ]);
       if (!snap.exists()) throw new Error('Account card not found.');
@@ -3803,13 +3859,17 @@ async function surrenderBookerCard(state, cardId, form) {
         surrenderedAt: timestamp,
         updatedAt: timestamp
       });
-      transaction.set(lockRef, {
-        bookerName: state.bookerName,
-        cardId,
-        status: 'surrendered',
-        surrenderedAt: timestamp,
-        updatedAt: timestamp
-      }, { merge: true });
+      // Only release the lock if it still points to this card. A card claimed in
+      // parallel (after this one failed) owns the lock now and must keep it active.
+      if (!lockSnap.exists() || lockSnap.data().cardId === cardId) {
+        transaction.set(lockRef, {
+          bookerName: state.bookerName,
+          cardId,
+          status: 'surrendered',
+          surrenderedAt: timestamp,
+          updatedAt: timestamp
+        }, { merge: true });
+      }
     });
     state.surrenderCardId = '';
     await loadBookerBoard(state);
@@ -3909,6 +3969,7 @@ function normalizePendingCheckout(id, data = {}) {
     notes: data.notes || '',
     cannotFulfillReason: data.cannotFulfillReason || '',
     ownerUid: data.ownerUid || '',
+    requeuedBy: data.requeuedBy || '',
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null
   };
