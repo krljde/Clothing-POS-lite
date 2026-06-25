@@ -202,6 +202,7 @@ service cloud.firestore {
               'surrenderedEmail',
               'expiresAt',
               'surrenderedAt',
+              'hasFailed',
               'updatedAt'
             ])
             && request.resource.data.status in ['claimed', 'fulfilling', 'ready_to_surrender', 'surrendered']
@@ -239,6 +240,7 @@ service cloud.firestore {
                 'actualCost',
                 'fulfilledAt',
                 'failedAt',
+                'requeuedAt',
                 'updatedAt'
               ])
               && request.resource.data.bookerName == sessionBookerName(boardCollection)
@@ -249,6 +251,33 @@ service cloud.firestore {
 
       match /pendingCheckouts/{pendingId} {
         allow read, write: if ownsBoard(boardCollection, boardId);
+        // A booker may re-queue a failed checkout from a card they own back into
+        // the owner's queue (create-only; still no booker read/update/delete).
+        allow create: if hasBookerSession(boardCollection, boardId)
+          && request.resource.data.status == 'pending'
+          && request.resource.data.ownerUid == get(boardPath(boardCollection, boardId)).data.ownerUid
+          && request.resource.data.requeuedBy == sessionBookerName(boardCollection)
+          && cardClaimedBySession(boardCollection, boardId, request.resource.data.requeuedFromCardId)
+          && request.resource.data.keys().hasOnly([
+            'ownerUid',
+            'status',
+            'assignedCardId',
+            'customerName',
+            'customerContact',
+            'customerAddress',
+            'voucher',
+            'expectedTotal',
+            'cartUrl',
+            'cartImage',
+            'cartTitle',
+            'items',
+            'notes',
+            'cannotFulfillReason',
+            'requeuedBy',
+            'requeuedFromCardId',
+            'createdAt',
+            'updatedAt'
+          ]);
       }
 
       match /bookerLocks/{bookerKey} {
