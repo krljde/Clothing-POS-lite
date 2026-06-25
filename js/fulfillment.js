@@ -312,6 +312,29 @@ function isOwnerViewActive() {
   return document.getElementById('fulfillment-view')?.classList.contains('active');
 }
 
+/* Coalesce realtime-listener renders: several snapshots arriving in one frame
+   (e.g. the unclaimed + my-cards listeners both firing on a claim, or a burst of
+   pendingSummary writes) collapse into a single innerHTML rebuild. User-action
+   renders stay synchronous — they need immediate focus/scroll — so only the
+   onSnapshot handlers below schedule through these. */
+function scheduleRenderOwner(owner) {
+  if (owner._renderScheduled) return;
+  owner._renderScheduled = true;
+  requestAnimationFrame(() => { owner._renderScheduled = false; renderOwner(owner); });
+}
+function scheduleRenderBooker(state) {
+  if (state._renderScheduled) return;
+  state._renderScheduled = true;
+  requestAnimationFrame(() => { state._renderScheduled = false; renderBooker(state); });
+}
+
+/* Autofill customer lookup (getKnownOwnerCustomers) rescans all orders + checkouts
+   + pending and sorts; without this it ran on every keystroke. Cache is rebuilt
+   lazily and dropped here whenever the owner's underlying data is re-applied. */
+function invalidateOwnerCustomerCache(owner) {
+  owner._customerCache = null;
+}
+
 async function loadOwnerBoard(owner, options = {}) {
   if (owner.loading && !options.force) return;
   const db = getDb();
@@ -374,6 +397,7 @@ async function loadOwnerCards(owner) {
     return [card.id, checkouts];
   }));
   owner.checkoutsByCard = new Map(checkoutPairs);
+  invalidateOwnerCustomerCache(owner);
   if (owner.ownerCardModalId && !owner.cards.some(card => card.id === owner.ownerCardModalId)) {
     owner.ownerCardModalId = '';
   }
@@ -1486,7 +1510,10 @@ function subscribePendingCheckouts(owner) {
   );
   owner.pendingUnsub = onSnapshot(q, async snap => {
     owner.pendingCheckouts = snap.docs.map(d => normalizePendingCheckout(d.id, d.data()));
-    renderOwner(owner);
+    invalidateOwnerCustomerCache(owner);
+    // Skip painting an off-screen board — owner.pendingCheckouts is still updated,
+    // and switching to the fulfillment view re-renders via loadOwnerBoard.
+    if (isOwnerViewActive() || IS_MOCK) scheduleRenderOwner(owner);
     await checkAndAutoGroup(owner);
     await syncPendingSummary(owner);
   }, err => {
@@ -1812,7 +1839,14 @@ function handleOwnerCustomerAutofill(event, owner) {
   }
 }
 
-function getKnownOwnerCustomers(owner) {
+function buildOwnerCustomerCache(owner) {
+  const orders = window.POS?.getState?.().orders || [];
+  let checkoutCount = 0;
+  owner.checkoutsByCard.forEach(list => { checkoutCount += list.length; });
+  // Cheap signature catches add/remove; explicit invalidation (on snapshot apply)
+  // catches edits that don't change counts.
+  const sig = `${orders.length}|${checkoutCount}|${owner.pendingCheckouts.length}`;
+  if (owner._customerCache && owner._customerCache.sig === sig) return owner._customerCache;
   const customers = new Map();
   const addCustomer = (customer = {}) => {
     const name = String(customer.customerName || customer.name || '').trim().replace(/\s+/g, ' ');
@@ -1825,16 +1859,22 @@ function getKnownOwnerCustomers(owner) {
       address: String(customer.customerAddress || customer.address || existing.address || '').trim()
     });
   };
-  window.POS?.getState?.().orders?.forEach(addCustomer);
+  orders.forEach(addCustomer);
   owner.checkoutsByCard.forEach(checkouts => checkouts.forEach(addCustomer));
   owner.pendingCheckouts.forEach(addCustomer);
-  return [...customers.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const list = [...customers.values()].sort((a, b) => a.name.localeCompare(b.name));
+  owner._customerCache = { sig, list, byKey: customers };
+  return owner._customerCache;
+}
+
+function getKnownOwnerCustomers(owner) {
+  return buildOwnerCustomerCache(owner).list;
 }
 
 function findKnownOwnerCustomer(owner, name) {
   const key = normalizeBookerName(name);
   if (!key) return null;
-  return getKnownOwnerCustomers(owner).find(customer => normalizeBookerName(customer.name) === key) || null;
+  return buildOwnerCustomerCache(owner).byKey.get(key) || null;
 }
 
 function maybeAutoAdvance(field) {
@@ -2497,34 +2537,51 @@ function subscribeBookerBoard(state) {
   let unclaimedCards = [];
   let myCards = [];
   let refreshId = 0;
+  let refreshScheduled = false;
+  // Per-card checkout cache. Checkouts only change alongside their parent card
+  // (every booker/owner write that touches a checkout bumps card.updatedAt in the
+  // same batch/transaction), so an unchanged updatedAt means the cached checkouts
+  // are still current — skip the getDocs. Cleared on manual refresh (re-subscribe).
+  const checkoutCache = new Map();
   const refreshCards = async () => {
     const currentRefreshId = ++refreshId;
     try {
       const cards = Array.from(new Map([...unclaimedCards, ...myCards].map(card => [card.id, card])).values())
         .sort((a, b) => statusSort(a.status) - statusSort(b.status) || toMs(a.createdAt) - toMs(b.createdAt));
+      const liveIds = new Set(cards.map(card => card.id));
+      for (const id of [...checkoutCache.keys()]) if (!liveIds.has(id)) checkoutCache.delete(id);
       const pairs = await Promise.all(cards.map(async card => {
+        const sig = toMs(card.updatedAt) || 0;
+        const cached = checkoutCache.get(card.id);
+        if (cached && cached.sig === sig) return [card.id, cached.checkouts];
         const checkoutSnap = await getDocs(checkoutsRef(state.boardId, card.id));
-        return [
-          card.id,
-          checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data())).sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt))
-        ];
+        const checkouts = checkoutSnap.docs.map(docSnap => normalizeCheckout(docSnap.id, docSnap.data())).sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt));
+        checkoutCache.set(card.id, { sig, checkouts });
+        return [card.id, checkouts];
       }));
       if (currentRefreshId !== refreshId) return;
       state.cards = cards;
       state.checkoutsByCard = new Map(pairs);
       state.loading = false;
       // Don't clobber an in-progress surrender form; refresh data silently and render when it closes.
-      if (!state.surrenderCardId) renderBooker(state);
+      if (!state.surrenderCardId) scheduleRenderBooker(state);
     } catch (err) {
       console.warn('booker board sync failed:', err);
       state.loading = false;
     }
   };
-  const handleSnapshot = async (bucket, cardSnap) => {
+  // Coalesce the two card listeners: a claim moves a card from unclaimed->mine,
+  // firing both queries back-to-back. Without this each fire ran a full refresh.
+  const scheduleRefresh = () => {
+    if (refreshScheduled) return;
+    refreshScheduled = true;
+    requestAnimationFrame(() => { refreshScheduled = false; refreshCards(); });
+  };
+  const handleSnapshot = (bucket, cardSnap) => {
     const cards = cardSnap.docs.map(docSnap => normalizeCard(docSnap.id, docSnap.data()));
     if (bucket === 'mine') myCards = cards;
     else unclaimedCards = cards;
-    await refreshCards();
+    scheduleRefresh();
   };
   const handleError = err => {
     console.warn('booker board snapshot error:', err);
@@ -2550,7 +2607,7 @@ function subscribeBookerBoard(state) {
       if (!snap.exists()) return;
       state.board = normalizeBoard(snap.id, snap.data());
       if (!state.loading && !state.surrenderCardId && !state.tutorial && state.activeTab === 'unclaimed') {
-        renderBooker(state);
+        scheduleRenderBooker(state);
       }
     },
     handleError
