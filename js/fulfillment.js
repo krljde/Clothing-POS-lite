@@ -1051,21 +1051,19 @@ function renderOwnerCheckout(owner, card, checkout) {
       editor = '<p class="ful-pending-edit-hint">Replace is available on active cards only.</p>';
     }
   } else if (isActiveCard) {
-    if (failed && checkout.requeuedAt) {
-      // Already auto-returned to the queue by the booker — don't offer a manual
-      // replace (it would create a duplicate queue entry).
+    if (failed) {
+      // Backfill a failed checkout from a same-voucher pending request OR an unclaimed
+      // card. The failed customer's data already waits in the queue (booker requeues
+      // on failure), so this only restores the booker's combo.
+      const pendingCount = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher)).length;
+      const cardCount = getUnclaimedCardSources(owner, checkout.voucher, card.id).length;
+      const total = pendingCount + cardCount;
       editor = `
         <div class="ful-replace-box">
-          <p class="ful-pending-edit-hint">↩︎ Booker sent this ${escapeHtml(checkout.voucher)} back to the pending queue — it will regroup into the next combo automatically.</p>
-        </div>`;
-    } else if (failed) {
-      const matches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
-      editor = `
-        <div class="ful-replace-box">
-          <button type="button" class="btn btn-primary btn-sm" data-replace-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}" ${matches.length ? '' : 'disabled'}>${icon('refresh')}<span>Replace with pending request</span></button>
-          <p class="ful-pending-edit-hint">${matches.length
-            ? `${matches.length} pending ${escapeHtml(checkout.voucher)} request${matches.length === 1 ? '' : 's'} available to swap in.`
-            : `No pending ${escapeHtml(checkout.voucher)} request available to replace this.`}</p>
+          <button type="button" class="btn btn-primary btn-sm" data-replace-checkout="${escapeAttr(checkout.id)}" data-card-id="${escapeAttr(card.id)}" ${total ? '' : 'disabled'}>${icon('refresh')}<span>Replace this checkout</span></button>
+          <p class="ful-pending-edit-hint">${total
+            ? `${total} ${escapeHtml(checkout.voucher)} source${total === 1 ? '' : 's'} to swap in (pending requests + unclaimed cards).`
+            : `No ${escapeHtml(checkout.voucher)} source available yet.${checkout.requeuedAt ? ' This one is already waiting in the queue to be edited.' : ''}`}</p>
         </div>`;
     } else {
       editor = renderOwnerCheckoutEdit(card, checkout);
@@ -2050,7 +2048,7 @@ async function deleteOwnerCard(owner, cardId) {
     }
     return;
   }
-  const message = `Delete this account card? Its ${knownCount} checkout${knownCount === 1 ? '' : 's'} will return to the pending queue.`
+  const message = `Delete this account card? Its ${knownCount} checkout${knownCount === 1 ? '' : 's'} will return to the queue for editing.`
     + (card.bookerName ? ` ${card.bookerName} is working on it and will be released.` : '');
   if (!(await showConfirm(message, { confirmLabel: 'Delete card', danger: true }))) return;
   const user = getAuthUser();
@@ -2060,9 +2058,12 @@ async function deleteOwnerCard(owner, cardId) {
     const batch = writeBatch(getDb());
     const timestamp = serverTimestamp();
     checkouts.forEach(checkout => {
+      // Return as 'failed' (editable), NOT 'pending' — a 'pending' return would be
+      // instantly re-grouped by checkAndAutoGroup into a fresh card, so the deleted
+      // card would reappear. 'failed' items wait in the queue for a deliberate edit.
       batch.set(doc(pendingCheckoutsRef(owner.board.id)), {
         ownerUid: user.uid,
-        status: 'pending',
+        status: 'failed',
         assignedCardId: '',
         customerName: checkout.customerName,
         customerContact: checkout.customerContact,
@@ -2074,7 +2075,7 @@ async function deleteOwnerCard(owner, cardId) {
         cartTitle: checkout.cartTitle || '',
         items: checkout.items,
         notes: checkout.notes,
-        cannotFulfillReason: '',
+        cannotFulfillReason: 'Returned from a deleted card — edit before re-posting',
         createdAt: timestamp,
         updatedAt: timestamp
       });
@@ -2091,7 +2092,7 @@ async function deleteOwnerCard(owner, cardId) {
     }
     await batch.commit();
     owner.ownerCardModalId = '';
-    showToast('Card deleted; checkouts returned to the pending queue.', 'success');
+    showToast('Card deleted; checkouts returned to the queue for editing.', 'success');
     await loadOwnerBoard(owner, { force: true });
   } catch (err) {
     console.warn('deleteOwnerCard failed:', err);
@@ -2127,87 +2128,172 @@ async function reopenCheckout(owner, cardId, checkoutId) {
   await loadOwnerBoard(owner, { force: true });
 }
 
+// Unclaimed cards (open, no booker) holding a same-voucher checkout — a backfill
+// source for a failed checkout. Excludes the failed checkout's own card.
+function getUnclaimedCardSources(owner, voucher, excludeCardId = '') {
+  const key = voucherKey(voucher);
+  const sources = [];
+  for (const card of owner.cards) {
+    if (card.id === excludeCardId || card.status !== 'open' || card.bookerName) continue;
+    const match = (owner.checkoutsByCard.get(card.id) || [])
+      .find(co => voucherKey(co.voucher) === key && !['fulfilled', 'approved'].includes(co.status));
+    if (match) sources.push({ card, checkout: match });
+  }
+  return sources;
+}
+
+// The failed checkout's data, returned to the owner queue as an editable 'failed' item.
+function failedQueuePayload(ownerUid, failed, timestamp) {
+  return {
+    ownerUid, status: 'failed', assignedCardId: '',
+    customerName: failed.customerName || '', customerContact: failed.customerContact || '',
+    customerAddress: failed.customerAddress || '', voucher: failed.voucher || '',
+    expectedTotal: failed.expectedTotal ?? 0, cartUrl: failed.cartUrl || '',
+    cartImage: failed.cartImage || '', cartTitle: failed.cartTitle || '',
+    items: failed.items || [], notes: failed.notes || '',
+    cannotFulfillReason: failed.cannotFulfillReason || '',
+    createdAt: timestamp, updatedAt: timestamp
+  };
+}
+
+// A source's data, written into the failed slot reset to a fresh 'open' checkout.
+function fillSlotPayload(src, timestamp) {
+  return {
+    status: 'open',
+    customerName: src.customerName || '', customerContact: src.customerContact || '',
+    customerAddress: src.customerAddress || '', voucher: src.voucher || '',
+    expectedTotal: src.expectedTotal ?? 0, cartUrl: src.cartUrl || '',
+    cartImage: src.cartImage || '', cartTitle: src.cartTitle || '',
+    items: src.items || [], notes: src.notes || '',
+    canFulfill: null, cannotFulfillReason: '', unavailableItems: [],
+    fulfilledAt: null, failedAt: null, requeuedAt: null,
+    updatedAt: timestamp
+  };
+}
+
+// True if the booker card still has a failed checkout OTHER than the one being replaced.
+function otherFailuresRemain(owner, cardId, replacedCheckoutId) {
+  return (owner.checkoutsByCard.get(cardId) || [])
+    .some(co => co.id !== replacedCheckoutId && co.status === 'cannot_fulfill');
+}
+
+function handleReplaceError(err) {
+  const msg = String(err?.message || '');
+  if (msg.includes('already taken')) showToast('That request was just taken. Pick another.', 'error');
+  else if (msg.includes('source claimed')) showToast('That card was just claimed. Pick another source.', 'error');
+  else { console.warn('replaceFailedCheckout failed:', err); showToast('Replace failed. Try again.', 'error'); }
+}
+
 async function replaceFailedCheckout(owner, cardId, checkoutId) {
   if (!owner.board) return;
   const checkout = (owner.checkoutsByCard.get(cardId) || []).find(co => co.id === checkoutId);
   if (!checkout || checkout.status !== 'cannot_fulfill') return;
-  const matches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
-  if (!matches.length) {
-    showToast(`No pending ${checkout.voucher} request available.`, 'error');
+  const pendingMatches = owner.pendingCheckouts.filter(pc => pc.status === 'pending' && voucherKey(pc.voucher) === voucherKey(checkout.voucher));
+  const cardSources = getUnclaimedCardSources(owner, checkout.voucher, cardId);
+  if (!pendingMatches.length && !cardSources.length) {
+    showToast(`No ${checkout.voucher} source available to swap in.`, 'error');
     return;
   }
-  const pendingId = await showPicker(`Replace ${firstName(checkout.customerName)}’s ${checkout.voucher} checkout with a pending request:`, {
-    options: matches.map(pc => ({
-      value: pc.id,
+  const options = [
+    ...pendingMatches.map(pc => ({
+      value: `pending:${pc.id}`,
       label: pc.customerName || 'Customer',
-      sublabel: `${peso(pc.expectedTotal)} · ${pc.voucher}`
+      sublabel: `${peso(pc.expectedTotal)} · ${pc.voucher} · pending request`
     })),
+    ...cardSources.map(({ card, checkout: co }) => ({
+      value: `card:${card.id}:${co.id}`,
+      label: co.customerName || 'Customer',
+      sublabel: `${peso(co.expectedTotal)} · ${co.voucher} · from unclaimed card`
+    }))
+  ];
+  const choice = await showPicker(`Replace ${firstName(checkout.customerName)}’s ${checkout.voucher} checkout:`, {
+    options,
     confirmLabel: 'Replace'
   });
-  if (!pendingId) return;
+  if (!choice) return;
+  if (choice.startsWith('pending:')) {
+    await replaceFromPending(owner, cardId, checkoutId, choice.slice('pending:'.length));
+  } else if (choice.startsWith('card:')) {
+    const [, srcCardId, srcCheckoutId] = choice.split(':');
+    await replaceFromUnclaimedCard(owner, cardId, checkoutId, srcCardId, srcCheckoutId);
+  }
+}
+
+async function replaceFromPending(owner, cardId, checkoutId, pendingId) {
   const db = getDb();
   const user = getAuthUser();
   try {
     await runTransaction(db, async transaction => {
       const coRef = checkoutRef(owner.board.id, cardId, checkoutId);
       const pendRef = pendingCheckoutRef(owner.board.id, pendingId);
+      const cRef = cardRef(owner.board.id, cardId);
       const [coSnap, pendSnap] = await Promise.all([transaction.get(coRef), transaction.get(pendRef)]);
       if (!coSnap.exists() || coSnap.data().status !== 'cannot_fulfill') throw new Error('checkout changed');
       if (!pendSnap.exists() || pendSnap.data().status !== 'pending') throw new Error('already taken');
       if (voucherKey(pendSnap.data().voucher) !== voucherKey(coSnap.data().voucher)) throw new Error('voucher mismatch');
       const failed = coSnap.data();
-      const incoming = pendSnap.data();
       const timestamp = serverTimestamp();
-      // Failed checkout returns to the queue (needs editing before re-pooling).
-      transaction.set(doc(pendingCheckoutsRef(owner.board.id)), {
-        ownerUid: user.uid,
-        status: 'failed',
-        assignedCardId: '',
-        customerName: failed.customerName,
-        customerContact: failed.customerContact,
-        customerAddress: failed.customerAddress,
-        voucher: failed.voucher,
-        expectedTotal: failed.expectedTotal,
-        cartUrl: failed.cartUrl,
-        cartImage: failed.cartImage || '',
-        cartTitle: failed.cartTitle || '',
-        items: failed.items,
-        notes: failed.notes,
-        cannotFulfillReason: failed.cannotFulfillReason || '',
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
-      // Incoming request fills the checkout slot, reset to open.
-      transaction.update(coRef, {
-        status: 'open',
-        customerName: incoming.customerName,
-        customerContact: incoming.customerContact,
-        customerAddress: incoming.customerAddress,
-        voucher: incoming.voucher,
-        expectedTotal: incoming.expectedTotal,
-        cartUrl: incoming.cartUrl,
-        cartImage: incoming.cartImage || '',
-        cartTitle: incoming.cartTitle || '',
-        items: incoming.items,
-        notes: incoming.notes,
-        canFulfill: null,
-        cannotFulfillReason: '',
-        unavailableItems: [],
-        failedAt: null,
-        updatedAt: timestamp
-      });
+      // The booker already queued the failed data on failure (requeuedAt); only push
+      // it here as a fallback for a checkout that failed without being requeued.
+      if (!failed.requeuedAt) {
+        transaction.set(doc(pendingCheckoutsRef(owner.board.id)), failedQueuePayload(user.uid, failed, timestamp));
+      }
+      transaction.update(coRef, fillSlotPayload(pendSnap.data(), timestamp));
       transaction.delete(pendRef);
-      transaction.update(cardRef(owner.board.id, cardId), { status: 'fulfilling', updatedAt: timestamp });
+      transaction.update(cRef, { status: 'fulfilling', hasFailed: otherFailuresRemain(owner, cardId, checkoutId), updatedAt: timestamp });
     });
-    showToast('Checkout replaced — failed request moved to the queue for editing.', 'success');
+    showToast('Checkout replaced from the pending queue.', 'success');
     await loadOwnerBoard(owner, { force: true });
   } catch (err) {
-    if (String(err.message).includes('already taken')) {
-      showToast('That request was just taken. Pick another.', 'error');
-    } else {
-      console.warn('replaceFailedCheckout failed:', err);
-      showToast('Replace failed. Try again.', 'error');
-    }
+    handleReplaceError(err);
+  }
+}
+
+async function replaceFromUnclaimedCard(owner, cardId, checkoutId, srcCardId, srcCheckoutId) {
+  const db = getDb();
+  const user = getAuthUser();
+  // Transactions can't query a subcollection — pre-read the source card's checkout ids.
+  let srcIds;
+  try {
+    const snap = await getDocs(checkoutsRef(owner.board.id, srcCardId));
+    srcIds = snap.docs.map(d => d.id);
+  } catch { showToast('Could not load that card. Try again.', 'error'); return; }
+  try {
+    await runTransaction(db, async transaction => {
+      const coRef = checkoutRef(owner.board.id, cardId, checkoutId);
+      const cRef = cardRef(owner.board.id, cardId);
+      const srcRef = cardRef(owner.board.id, srcCardId);
+      const srcCoRefs = srcIds.map(id => checkoutRef(owner.board.id, srcCardId, id));
+      const [coSnap, srcCardSnap, ...srcCoSnaps] = await Promise.all([
+        transaction.get(coRef), transaction.get(srcRef), ...srcCoRefs.map(r => transaction.get(r))
+      ]);
+      if (!coSnap.exists() || coSnap.data().status !== 'cannot_fulfill') throw new Error('checkout changed');
+      if (!srcCardSnap.exists() || srcCardSnap.data().status !== 'open' || srcCardSnap.data().bookerName) throw new Error('source claimed');
+      const idx = srcIds.indexOf(srcCheckoutId);
+      const incomingSnap = idx >= 0 ? srcCoSnaps[idx] : null;
+      if (!incomingSnap || !incomingSnap.exists()) throw new Error('source changed');
+      if (voucherKey(incomingSnap.data().voucher) !== voucherKey(coSnap.data().voucher)) throw new Error('voucher mismatch');
+      const failed = coSnap.data();
+      const timestamp = serverTimestamp();
+      if (!failed.requeuedAt) {
+        transaction.set(doc(pendingCheckoutsRef(owner.board.id)), failedQueuePayload(user.uid, failed, timestamp));
+      }
+      transaction.update(coRef, fillSlotPayload(incomingSnap.data(), timestamp));
+      // Dissolve the unclaimed card: its OTHER checkouts return to the queue as 'failed',
+      // then delete every source checkout and the card itself.
+      srcCoSnaps.forEach((snap, i) => {
+        if (snap.exists() && srcIds[i] !== srcCheckoutId) {
+          transaction.set(doc(pendingCheckoutsRef(owner.board.id)), failedQueuePayload(user.uid, snap.data(), timestamp));
+        }
+        transaction.delete(srcCoRefs[i]);
+      });
+      transaction.delete(srcRef);
+      transaction.update(cRef, { status: 'fulfilling', hasFailed: otherFailuresRemain(owner, cardId, checkoutId), updatedAt: timestamp });
+    });
+    showToast('Checkout replaced from an unclaimed card; that card was dissolved into the queue.', 'success');
+    await loadOwnerBoard(owner, { force: true });
+  } catch (err) {
+    handleReplaceError(err);
   }
 }
 
@@ -2417,6 +2503,9 @@ function applyMockOwnerState(owner) {
     [mockCheckout('o1a', 'Ana Cruz', '83%', 1450, 'fulfilled'), mockCheckout('o1b', 'Ana Cruz', '60%', 980, 'cannot_fulfill', { cannotFulfillReason: 'Out of stock on 2 of 3 items' })]);
   add(normalizeCard('o2', { status: 'open', createdAt: at(now - 9e5) }),
     [mockCheckout('o2a', 'Carla Reyes', '57%', 2300, 'open')]);
+  // Unclaimed card sharing the 60% voucher with o1's failed checkout — a backfill source.
+  add(normalizeCard('o5', { status: 'open', createdAt: at(now - 4e5) }),
+    [mockCheckout('o5a', 'Nita Cruz', '60%', 1050, 'open'), mockCheckout('o5b', 'Opal Yu', '70%', 1240, 'open')]);
   add(normalizeCard('o3', { status: 'surrendered', bookerName: 'Maria Santos', surrenderedEmail: 'shop.main+co3@gmail.com', generatedEmail: 'shop.main+co3@gmail.com', accountEmail: 'mariaco3@gmail.com', accountPassword: 'Sh3in!co3pass', accountCost: 190, vouchers: ['59%', '70%'], expiresAt: new Date(now + 18 * 3.6e6).toISOString(), createdAt: at(now - 7.2e6) }),
     [mockCheckout('o3a', 'Dina Tan', '83%', 1450, 'fulfilled', { refund: 125, actualCost: 1375 }), mockCheckout('o3b', 'Ella Ng', '75%', 1750, 'fulfilled')]);
   add(normalizeCard('o4', { status: 'approved', bookerName: 'Liza Reyes', accountEmail: 'lizaco4@gmail.com', accountPassword: 'L1za!co4pass', accountCost: 190, createdAt: at(now - 9e7) }),
@@ -3760,12 +3849,12 @@ async function saveBookerCheckoutDecision(state, cardId, checkoutId, decision) {
       if (!cannotFulfill) { updates.refund = refund; updates.actualCost = actualCost; }
       if (cannotFulfill) {
         // Mark terminal (no reopen) and re-queue the un-orderable checkout to the
-        // owner's pending queue so it can regroup into the next combo immediately,
-        // instead of waiting for a same-voucher manual swap.
+        // owner's queue as 'failed' (editable) — it failed for a reason, so it waits
+        // for an owner edit before re-pooling rather than silently auto-regrouping.
         updates.requeuedAt = timestamp;
         transaction.set(doc(pendingCheckoutsRef(state.boardId)), {
           ownerUid: state.board.ownerUid,
-          status: 'pending',
+          status: 'failed',
           assignedCardId: '',
           customerName: checkout.customerName || '',
           customerContact: checkout.customerContact || '',

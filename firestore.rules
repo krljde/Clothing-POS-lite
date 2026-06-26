@@ -254,7 +254,7 @@ service cloud.firestore {
         // A booker may re-queue a failed checkout from a card they own back into
         // the owner's queue (create-only; still no booker read/update/delete).
         allow create: if hasBookerSession(boardCollection, boardId)
-          && request.resource.data.status == 'pending'
+          && request.resource.data.status in ['pending', 'failed']
           && request.resource.data.ownerUid == get(boardPath(boardCollection, boardId)).data.ownerUid
           && request.resource.data.requeuedBy == sessionBookerName(boardCollection)
           && cardClaimedBySession(boardCollection, boardId, request.resource.data.requeuedFromCardId)
