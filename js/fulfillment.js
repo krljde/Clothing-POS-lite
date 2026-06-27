@@ -3436,6 +3436,7 @@ function renderSurrenderModal(state) {
           <div class="fulfillment-step-footer">
             ${iconButton('Back', 'arrow-left', 'type="button" data-step-prev', 'ghost')}
             <span class="fulfillment-step-count" data-step-count>Step 1 of 2</span>
+            ${iconButton('Next', 'arrow-right', 'type="button" data-step-next')}
             <button type="submit" class="btn btn-primary btn-full" ${generatedEmail ? '' : 'disabled'}>Submit Surrender</button>
           </div>
         </form>
