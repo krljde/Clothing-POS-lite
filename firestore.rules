@@ -179,7 +179,16 @@ service cloud.firestore {
       allow update, delete: if ownsBoard(boardCollection, boardId);
 
       match /cards/{cardId} {
-        allow read: if ownsBoard(boardCollection, boardId)
+        allow get: if ownsBoard(boardCollection, boardId)
+          || (
+            hasBookerSession(boardCollection, boardId)
+            && (
+              !exists(cardPath(boardCollection, boardId, cardId))
+              || resource.data.bookerName == ''
+              || resource.data.bookerName == sessionBookerName(boardCollection)
+            )
+          );
+        allow list: if ownsBoard(boardCollection, boardId)
           || (
             hasBookerSession(boardCollection, boardId)
             && (

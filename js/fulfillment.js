@@ -2082,21 +2082,27 @@ async function deleteOwnerCard(owner, cardId) {
       batch.delete(checkoutRef(owner.board.id, cardId, checkout.id));
     });
     batch.delete(cardRef(owner.board.id, cardId));
-    if (card.bookerName) {
-      batch.set(bookerLockRef(owner.board.id, card.bookerName), {
-        bookerName: card.bookerName,
-        cardId,
-        status: 'released',
-        updatedAt: timestamp
-      }, { merge: true });
-    }
     await batch.commit();
+    await releaseBookerLockIfCurrent(owner, card.bookerName, cardId);
     owner.ownerCardModalId = '';
     showToast('Card deleted; checkouts returned to the queue for editing.', 'success');
     await loadOwnerBoard(owner, { force: true });
   } catch (err) {
     console.warn('deleteOwnerCard failed:', err);
     showToast('Could not delete the card. Try again.', 'error');
+  }
+}
+
+async function releaseBookerLockIfCurrent(owner, bookerName, cardId) {
+  if (!owner.board || !bookerName || !cardId) return;
+  try {
+    const ref = bookerLockRef(owner.board.id, bookerName);
+    await runTransaction(getDb(), async transaction => {
+      const snap = await transaction.get(ref);
+      if (snap.exists() && snap.data().cardId === cardId) transaction.delete(ref);
+    });
+  } catch (err) {
+    console.warn('booker lock release failed:', err);
   }
 }
 
