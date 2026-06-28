@@ -3401,7 +3401,8 @@ function renderSurrenderModal(state) {
               <div class="booker-surrender-target">
                 <span class="field-label">Bind to this email</span>
                 <div class="gmail-dot-item available">
-                  <span class="gmail-dot-email">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                  <span class="booker-dot-value">${escapeHtml(generatedEmail || 'No available Gmail dot variant')}</span>
+                  ${generatedEmail ? `<button class="gmail-dot-copy" type="button" data-copy-text="${escapeAttr(generatedEmail)}" title="Copy generated email">${icon('copy')}</button>` : ''}
                 </div>
                 <input type="hidden" name="generatedEmail" value="${escapeAttr(generatedEmail)}" />
                 <div class="toolbar">
