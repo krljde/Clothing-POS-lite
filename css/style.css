@@ -1455,13 +1455,91 @@ body.booker-route {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  padding: 4px 2px;
+  padding: 4px 2px 0;
 }
 .booker-header h1 {
   font-family: 'DM Serif Display', serif;
-  font-size: 1.7rem;
+  font-size: 1.55rem;
   line-height: 1.1;
+  margin: 0;
 }
+.booker-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.booker-avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  font-family: 'DM Serif Display', serif;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.booker-brand-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.booker-substatus {
+  margin: -8px 2px 0;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Top segmented control — Unclaimed / Active */
+.booker-seg {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+}
+.booker-seg-tab {
+  flex: 1;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.booker-seg-tab.is-active {
+  background: var(--text);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(42, 31, 26, .18);
+}
+.booker-seg-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.booker-seg-tab.is-active .booker-seg-count {
+  background: rgba(255, 255, 255, .22);
+  color: #fff;
+}
+
 .booker-name-gate {
   min-height: calc(100vh - 32px);
   display: grid;
@@ -1489,7 +1567,12 @@ body.booker-route {
 }
 .booker-account-card {
   gap: var(--sp-3);
-  padding: var(--sp-4);
+  padding: 18px;
+  transition: transform var(--t), box-shadow var(--t);
+}
+.booker-account-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
 }
 .booker-checkout-summary {
   width: 100%;
@@ -1539,9 +1622,11 @@ body.booker-route {
 .booker-card-title {
   margin: 0;
   color: var(--text);
-  font-size: 17px;
-  font-weight: 800;
+  font-family: 'DM Serif Display', serif;
+  font-size: 19px;
+  font-weight: 400;
   line-height: 1.15;
+  letter-spacing: -.01em;
   overflow-wrap: anywhere;
 }
 .booker-voucher-chips {
@@ -1595,7 +1680,7 @@ body.booker-route {
   gap: 5px;
   min-height: 44px;
   padding: 0 4px;
-  color: var(--purple);
+  color: var(--accent);
   background: none;
   border: 0;
   font-family: inherit;
@@ -1608,12 +1693,12 @@ body.booker-route {
 .booker-card-action-cta {
   padding: 0 16px;
   border-radius: var(--radius-sm);
-  background: var(--purple);
+  background: var(--accent);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(122,95,168,.28);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
   transition: background var(--dur) var(--ease), transform var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.booker-card-action-cta:hover { background: #6a4f96; color: #fff; box-shadow: 0 4px 14px rgba(122,95,168,.4); }
+.booker-card-action-cta:hover { background: color-mix(in srgb, var(--accent) 88%, #000); color: #fff; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent); }
 .booker-card-action-cta:active { transform: translateY(1px); }
 .booker-card-action .ui-icon,
 .booker-expand-mark .ui-icon {
@@ -1809,6 +1894,31 @@ body.booker-route {
 .booker-cost-inline .form-input {
   width: 7rem;
 }
+/* Actual cost + refund laid out as a 2-column grid above the decision buttons */
+.booker-cost-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.booker-cost-grid .booker-cost-inline,
+.booker-cost-grid .booker-refund-inline {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+.booker-cost-grid .form-label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-3);
+  white-space: normal;
+}
+.booker-cost-grid .form-input {
+  width: 100%;
+  height: 44px;
+}
 .booker-surrender-form {
   display: grid;
   gap: 10px;
@@ -1928,26 +2038,96 @@ body.booker-route {
   z-index: 100;
   display: grid;
   place-items: end center;
-  padding: 16px;
-  background: rgba(34, 30, 28, .42);
+  padding: 14px;
+  background: rgba(42, 31, 26, .5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: booker-scrim-in .18s ease;
 }
 .booker-surrender-panel {
   width: min(520px, 100%);
-  max-height: calc(100vh - 32px);
+  max-height: 90%;
   overflow: auto;
   display: grid;
   gap: 14px;
-  padding: 16px;
-  border-radius: var(--radius-lg);
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-lg) var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
+  animation: booker-sheet-in .26s cubic-bezier(.34, 1.56, .64, 1);
+}
+.booker-sheet-grabber {
+  justify-self: center;
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin-bottom: 2px;
+}
+@keyframes booker-sheet-in {
+  from { opacity: 0; transform: translateY(16px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes booker-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Handoff OTP display inside the surrender sheet */
+.booker-note.booker-otp-result {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+}
+.booker-otp-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--accent);
+}
+.booker-otp-code {
+  font-family: 'DM Serif Display', serif;
+  font-size: 40px;
+  letter-spacing: .14em;
+  line-height: 1;
+  color: var(--text);
+}
+.booker-otp-copy {
+  justify-self: stretch;
+  width: 100%;
+}
+.booker-otp-details {
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
 }
 .booker-header-actions {
   display: flex;
   gap: 6px;
   align-items: center;
   flex-shrink: 0;
+}
+/* Coral notification dot on the refresh button (matches the design's header badge) */
+.icon-btn[data-booker-refresh] {
+  position: relative;
+  overflow: visible;
+}
+.icon-btn[data-booker-refresh]::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1.5px solid var(--surface);
 }
 
 /* Interactive coach-mark tutorial — mobile-first overlay with spotlight */
@@ -2170,10 +2350,25 @@ body.booker-route {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  border-top: 1px solid var(--border);
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-soft);
   box-shadow: 0 -10px 24px rgba(34, 30, 28, .08);
+}
+.booker-bottom-nav--2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.booker-nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background var(--t);
+}
+.booker-nav-btn.is-active .booker-nav-dot {
+  background: var(--accent);
 }
 .booker-nav-btn {
   min-height: 48px;
@@ -2203,7 +2398,7 @@ body.booker-route {
   line-height: 1;
 }
 .booker-nav-btn.is-active {
-  color: var(--purple);
+  color: var(--accent);
   background: var(--surface-2);
 }
 .booker-stats-card h2 {
@@ -2386,9 +2581,13 @@ body.booker-route {
     max-height: calc(100vh - 32px);
     max-height: calc(100dvh - 32px);
   }
-  .booker-card-action {
+  .booker-card-action:not(.booker-card-action-cta) {
     min-height: 44px;
     padding: 10px 0;
+  }
+  .booker-card-action-cta {
+    min-height: 44px;
+    padding: 10px 16px;
   }
   .booker-stats-grid {
     grid-template-columns: 1fr;

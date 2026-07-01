@@ -235,16 +235,6 @@ function iconButton(label, iconName, attrs = '', variant = 'secondary', size = '
   `;
 }
 
-function iconLink(label, iconName, href, attrs = '', variant = 'secondary', size = '') {
-  const classes = `icon-btn icon-btn-${variant}${size ? ` icon-btn-${size}` : ''}`;
-  return `
-    <a class="${classes}" href="${escapeAttr(href)}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}" ${attrs}>
-      ${icon(iconName)}
-      <span class="sr-only">${escapeHtml(label)}</span>
-    </a>
-  `;
-}
-
 function initOwnerFulfillment() {
   const root = document.getElementById('fulfillment-root');
   const refreshBtn = document.getElementById('fulfillment-refresh');
@@ -1733,16 +1723,6 @@ function readCheckoutEntry(form, options = {}) {
   return checkout;
 }
 
-function clearCheckoutEntry(form) {
-  ['customerName', 'customerContact', 'customerAddress', 'expectedTotal', 'cartUrl', 'itemLines', 'checkoutNotes'].forEach(name => {
-    const field = form.elements[name];
-    if (field) field.value = '';
-  });
-  form.querySelectorAll('.is-invalid').forEach(field => field.classList.remove('is-invalid'));
-  form.querySelectorAll('.form-error').forEach(error => error.remove());
-  setStepFormIndex(form, 0);
-}
-
 function renderStepProgress(total) {
   return `
     <div class="fulfillment-stepper" data-stepper data-total="${total}">
@@ -2747,24 +2727,29 @@ function renderBooker(state) {
       return;
     }
   }
-  const activeCard = getActiveBookerCard(state);
   const unclaimedCards = state.cards.filter(card => card.status === 'open' && !card.bookerName);
   const activeCards = state.cards.filter(card => isBookerOwnedCard(state, card) && BOOKER_BUSY_CARD_STATUSES.includes(card.status));
+  const onBoard = state.activeTab === 'unclaimed' || state.activeTab === 'active';
+  const initial = (String(state.bookerName || '').trim().charAt(0) || '?').toUpperCase();
   state.root.innerHTML = `
     <header class="booker-header">
-      <div>
-        <span class="page-kicker">Booker Board</span>
-        <h1>${escapeHtml(state.bookerName)}</h1>
+      <div class="booker-brand">
+        <span class="booker-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+        <div class="booker-brand-text">
+          <span class="page-kicker">Booker Board</span>
+          <h1>${escapeHtml(state.bookerName)}</h1>
+        </div>
       </div>
       <div class="booker-header-actions">
         ${iconButton('How fulfillment works', 'help', 'type="button" data-open-walkthrough', 'ghost', 'sm')}
-        ${iconButton('Refresh board', 'refresh', 'type="button" data-booker-refresh', 'secondary', 'sm')}
+        ${iconButton('Refresh board', 'rotate', 'type="button" data-booker-refresh', 'secondary', 'sm')}
       </div>
     </header>
+    <p class="booker-substatus">${activeCards.length} active · ${unclaimedCards.length} unclaimed</p>
     ${!state.board.gmailBase ? '<section class="booker-card"><p class="booker-lock">Gmail base is not configured yet. Tell the owner before surrendering an account.</p></section>' : ''}
-    ${activeCard && state.activeTab === 'unclaimed' ? '<section class="booker-card"><p class="booker-note">Finish your current CO before claiming another account.</p></section>' : ''}
+    ${onBoard ? renderBookerTopTabs(state, unclaimedCards.length, activeCards.length) : ''}
     ${renderBookerTabContent(state, unclaimedCards, activeCards)}
-    ${renderBookerBottomNav(state, unclaimedCards.length, activeCards.length)}
+    ${renderBookerBottomNav(state)}
     ${state.surrenderCardId ? renderSurrenderModal(state) : ''}
     ${state.tutorial ? renderTutorialCoach(state) : ''}
   `;
@@ -2852,25 +2837,40 @@ function renderBookerPendingIndicator(state) {
   `;
 }
 
-function renderBookerBottomNav(state, unclaimedCount, activeCount) {
+/* Top segmented control — Unclaimed / Active board views. Buttons keep the same
+   data-booker-tab hooks the tab handler already listens for. */
+function renderBookerTopTabs(state, unclaimedCount, activeCount) {
+  const seg = (tab, label, count) => {
+    const active = state.activeTab === tab;
+    return `
+      <button type="button" class="booker-seg-tab ${active ? 'is-active' : ''}" data-booker-tab="${tab}" aria-pressed="${active ? 'true' : 'false'}">
+        <span>${escapeHtml(label)}</span>
+        <span class="booker-seg-count">${count}</span>
+      </button>
+    `;
+  };
   return `
-    <nav class="booker-bottom-nav" aria-label="Booker navigation">
-      ${renderBookerNavButton(state, 'unclaimed', 'Unclaimed', unclaimedCount)}
-      ${renderBookerNavButton(state, 'active', 'Active', activeCount)}
-      ${renderBookerNavButton(state, 'stats', 'Stats', '')}
-    </nav>
+    <div class="booker-seg" role="tablist" aria-label="Board filter">
+      ${seg('unclaimed', 'Unclaimed', unclaimedCount)}
+      ${seg('active', 'Active', activeCount)}
+    </div>
   `;
 }
 
-function renderBookerNavButton(state, tab, label, count) {
-  const active = state.activeTab === tab;
-  const iconName = { unclaimed: 'list', active: 'activity', stats: 'bar-chart' }[tab] || 'list';
-  return `
+function renderBookerBottomNav(state) {
+  const onBoard = state.activeTab === 'unclaimed' || state.activeTab === 'active';
+  const boardTarget = state.lastBoardTab || 'unclaimed';
+  const navBtn = (tab, label, active) => `
     <button type="button" class="booker-nav-btn ${active ? 'is-active' : ''}" data-booker-tab="${tab}" aria-label="${escapeAttr(label)}">
-      <span class="booker-nav-icon">${icon(iconName)}</span>
+      <span class="booker-nav-dot" aria-hidden="true"></span>
       <span>${escapeHtml(label)}</span>
-      ${count !== '' ? `<strong>${count}</strong>` : ''}
     </button>
+  `;
+  return `
+    <nav class="booker-bottom-nav booker-bottom-nav--2" aria-label="Booker navigation">
+      ${navBtn(boardTarget, 'Board', onBoard)}
+      ${navBtn('stats', 'Earnings', state.activeTab === 'stats')}
+    </nav>
   `;
 }
 
@@ -2879,12 +2879,11 @@ function renderBookerStats(state) {
   return `
     <section class="booker-card booker-stats-card">
       <div>
-        <span class="page-kicker">Approved Stats</span>
-        <h2>${escapeHtml(state.bookerName)}</h2>
+        <h2>Statistics</h2>
       </div>
       <div class="booker-stats-grid">
-        <div><span>Items Checked Out</span><strong>${stats.items}</strong></div>
         <div><span>Accounts Sold</span><strong>${stats.accounts}</strong></div>
+        <div><span>Items Checked Out</span><strong>${stats.items}</strong></div>
         <div><span>Earnings</span><strong>${peso(stats.earnings)}</strong></div>
       </div>
       <p class="fulfillment-muted">Stats update after the shop owner approves surrendered accounts.</p>
@@ -2936,7 +2935,7 @@ function renderBookerCard(state, card) {
         </div>
         <div class="booker-account-main">
           <h2 class="booker-card-title">${escapeHtml(title)}</h2>
-          ${vouchers.length ? `<div class="booker-voucher-chips" aria-label="Vouchers needed">${vouchers.map(voucher => `<span class="voucher-chip">${escapeHtml(voucher)}</span>`).join('')}</div>` : '<p class="fulfillment-muted">No voucher set yet</p>'}
+          ${vouchers.length ? `<div class="booker-voucher-chips" aria-label="Vouchers needed">${vouchers.map(voucher => `<span class="voucher-chip">${escapeHtml(voucher)} off</span>`).join('')}</div>` : '<p class="fulfillment-muted">No voucher set yet</p>'}
           <div class="booker-card-meta-row" aria-label="Account card summary">
             <span><strong>${totalItems}</strong> item${totalItems === 1 ? '' : 's'}</span>
             <span><strong>${peso(expectedTotal)}</strong> expected</span>
@@ -2976,7 +2975,7 @@ function renderBookerUnclaimedRow(state, card, checkouts) {
       <div class="ful-pending-row-top ful-pending-row-top--static">
         <div class="ful-pending-row-info">
           ${vouchers.length
-            ? vouchers.map(voucher => `<span class="ful-voucher-pill">${escapeHtml(voucher)}</span>`).join('')
+            ? vouchers.map(voucher => `<span class="ful-voucher-pill">${escapeHtml(voucher)} off</span>`).join('')
             : '<span class="fulfillment-muted">No voucher set</span>'}
           <span class="ful-pending-meta">${escapeHtml(meta)}</span>
         </div>
@@ -3096,9 +3095,11 @@ function renderBookerCopyField(label, value, fallback, copyLabel, extraClass = '
 function renderCheckoutActionButtons(state, card, checkout) {
   return `
     <p class="booker-task-hint">Order this on SHEIN with the voucher, enter the actual amount you paid, then mark it:</p>
-    <div class="booker-decision-actions">
+    <div class="booker-cost-grid">
       ${renderBookerActualCostInput(state, card, checkout)}
       ${renderBookerRefundInput(card, checkout)}
+    </div>
+    <div class="booker-decision-actions">
       <button type="button" class="btn btn-primary" data-mark-checkout="fulfilled" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Mark as ordered</button>
       <button type="button" class="btn btn-danger" data-mark-checkout="cannot_fulfill" data-card-id="${escapeAttr(card.id)}" data-checkout-id="${escapeAttr(checkout.id)}">Can't order this</button>
     </div>
@@ -3130,6 +3131,19 @@ function renderBookerRefundInput(card, checkout) {
 
 function checkoutExpansionKey(cardId, checkoutId) {
   return `${cardId}:${checkoutId}`;
+}
+
+/* Handoff OTP display — big grouped serif digits per the design, copy button, and
+   optional email context. Copy value stays the raw ungrouped code. */
+function renderBookerOtp(code, details = '') {
+  const raw = String(code);
+  const grouped = /^\d{6}$/.test(raw) ? `${raw.slice(0, 3)} ${raw.slice(3)}` : raw;
+  return `
+    <span class="booker-otp-label">Handoff code</span>
+    <span class="booker-otp-code">${escapeHtml(grouped)}</span>
+    <button type="button" class="btn btn-secondary btn-sm booker-otp-copy" data-copy-text="${escapeAttr(raw)}">${icon('copy')}<span>Copy code</span></button>
+    ${details ? `<span class="booker-otp-details">${escapeHtml(details)}</span>` : ''}
+  `;
 }
 
 function renderExpiryHourOptions() {
@@ -3385,6 +3399,7 @@ function renderSurrenderModal(state) {
   return `
     <div class="booker-surrender-modal" role="dialog" aria-modal="true">
       <div class="booker-surrender-panel">
+        <span class="booker-sheet-grabber" aria-hidden="true"></span>
         <div class="fulfillment-panel-head">
           <div>
             <span class="page-kicker">Surrender</span>
@@ -3486,6 +3501,7 @@ async function handleBookerClick(event, state) {
   const tab = target.closest('[data-booker-tab]')?.getAttribute('data-booker-tab');
   if (tab) {
     state.activeTab = tab;
+    if (tab === 'unclaimed' || tab === 'active') state.lastBoardTab = tab;
     renderBooker(state);
     return;
   }
@@ -3615,16 +3631,15 @@ async function getSurrenderCode(button, state) {
   if (isSimMode(state)) {
     const code = '481920';
     resultEl.hidden = false;
-    resultEl.innerHTML = `
-      <span class="field-main mono">${escapeHtml(code)}</span>
-      <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(code)}">${icon('copy')}<span>Copy</span></button>
-    `;
+    resultEl.classList.add('booker-otp-result');
+    resultEl.innerHTML = renderBookerOtp(code);
     if (state.tutorial) positionTutorialCoach(state);
     return;
   }
 
   button.disabled = true;
   resultEl.hidden = false;
+  resultEl.classList.remove('booker-otp-result');
   resultEl.textContent = 'Checking for the latest code...';
   try {
     const user = await window.POSFirebase.ensureBookerAuth();
@@ -3637,16 +3652,15 @@ async function getSurrenderCode(button, state) {
     if (data.code) {
       const code = String(data.code);
       const details = [data.subject, data.from].filter(Boolean).map(item => String(item)).join(' · ');
-      resultEl.innerHTML = `
-        <span class="field-main mono">${escapeHtml(code)}</span>
-        <button type="button" class="btn btn-secondary btn-sm" data-copy-text="${escapeAttr(code)}">${icon('copy')}<span>Copy</span></button>
-        ${details ? `<span class="field-label">${escapeHtml(details)}</span>` : ''}
-      `;
+      resultEl.classList.add('booker-otp-result');
+      resultEl.innerHTML = renderBookerOtp(code, details);
     } else {
+      resultEl.classList.remove('booker-otp-result');
       resultEl.textContent = 'No code yet — try again in a moment.';
     }
   } catch (err) {
     console.warn('code fetch failed:', err);
+    resultEl.classList.remove('booker-otp-result');
     resultEl.textContent = 'Could not fetch code. Try again.';
     showToast('Could not fetch code. Try again.', 'error');
   } finally {
